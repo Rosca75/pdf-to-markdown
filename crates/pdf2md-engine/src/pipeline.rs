@@ -27,6 +27,8 @@ pub fn run(
         return Err(ConvertError::Corrupt("the document has no pages".into()));
     }
     progress(Progress { done: 0, total });
+    let timing = std::env::var_os("PDF2MD_TIMING").is_some();
+    let t_extract = std::time::Instant::now();
 
     let mut warnings = Vec::new();
     let mut pages: Vec<PageContent> = Vec::with_capacity(total);
@@ -65,7 +67,15 @@ pub fn run(
         return Err(ConvertError::Corrupt("no page could be read".into()));
     }
 
+    let t_layout = std::time::Instant::now();
     let markdown = layout(pages);
+    if timing {
+        eprintln!(
+            "timing: extract {:.1} ms, layout {:.1} ms",
+            (t_layout - t_extract).as_secs_f64() * 1e3,
+            t_layout.elapsed().as_secs_f64() * 1e3
+        );
+    }
     if markdown.trim().is_empty() {
         return Err(ConvertError::NoTextLayer);
     }

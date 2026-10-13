@@ -148,13 +148,24 @@ fn split_row(row: Vec<Span>, row_idx: usize, out: &mut Vec<Line>) {
     }
 }
 
-/// A span that is nothing but a list marker (`•`, `1.`, `a)`, `-`).
+/// A fragment that is nothing but a list marker (`•`, `1.`, `a)`, `-`) or a
+/// section number (`7.6.3`, `A.2`): typeset apart from the text it labels,
+/// but belonging to it.
 fn is_marker_only(text: &str) -> bool {
     let t = text.trim();
-    if t.is_empty() || t.chars().count() > 5 {
+    if t.is_empty() || t.chars().count() > 12 {
         return false;
     }
-    crate::markers::parse(&format!("{t} x")).is_some_and(|m| m.len >= t.len())
+    if crate::markers::section_depth(t, true).is_some() {
+        return true;
+    }
+    if t.chars().count() > 5 {
+        return false;
+    }
+    let mut probe = String::with_capacity(t.len() + 2);
+    probe.push_str(t);
+    probe.push_str(" x");
+    crate::markers::parse(&probe).is_some_and(|m| m.len >= t.len())
 }
 
 fn finish(mut spans: Vec<Span>, row: usize) -> Line {
@@ -222,6 +233,13 @@ pub(crate) mod tests {
         let lines = build(vec![sp("•", 72.0, 100.0, 10.0), sp("Item text", 95.0, 100.0, 10.0)]);
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].text(), "• Item text");
+    }
+
+    #[test]
+    fn section_number_joins_its_title() {
+        let lines = build(vec![sp("7.6.3", 36.8, 100.0, 10.0), sp("Standard Security Handler", 79.4, 100.0, 10.0)]);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].text(), "7.6.3 Standard Security Handler");
     }
 
     #[test]

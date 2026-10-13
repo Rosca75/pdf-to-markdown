@@ -14,6 +14,10 @@ const MIN_GUTTER_EM: f32 = 0.9;
 const MIN_COLUMN_EM: f32 = 6.0;
 /// Horizontal gaps at least this fraction of the widest one are cut together.
 const H_CUT_SHARE: f32 = 0.75;
+/// Recursion limit. Real layouts nest a handful of levels; the limit only
+/// guards the stack against pathological inputs (a stack overflow aborts
+/// the process and cannot be caught).
+const MAX_DEPTH: usize = 64;
 
 /// One item in reading order with the horizontal extent of the text
 /// column it belongs to.
@@ -30,21 +34,26 @@ pub struct Placed {
 pub fn reading_order(boxes: &[BBox], body_size: f32, frame: (f32, f32)) -> Vec<Placed> {
     let mut out = Vec::with_capacity(boxes.len());
     let idx: Vec<usize> = (0..boxes.len()).collect();
-    cut(boxes, idx, body_size.max(1.0), frame, &mut out);
+    cut(boxes, idx, body_size.max(1.0), frame, 0, &mut out);
     out
 }
 
-fn cut(boxes: &[BBox], mut idx: Vec<usize>, em: f32, col: (f32, f32), out: &mut Vec<Placed>) {
+fn cut(boxes: &[BBox], mut idx: Vec<usize>, em: f32, col: (f32, f32), depth: usize, out: &mut Vec<Placed>) {
     let place = |i: usize| Placed { index: i, col_x0: col.0, col_x1: col.1 };
     if idx.len() <= 1 {
+        out.extend(idx.into_iter().map(place));
+        return;
+    }
+    if depth >= MAX_DEPTH {
+        positional_order(boxes, &mut idx);
         out.extend(idx.into_iter().map(place));
         return;
     }
     if let Some(x) = best_vertical(boxes, &mut idx, em) {
         let (left, right): (Vec<usize>, Vec<usize>) = idx.into_iter().partition(|&i| boxes[i].x1 <= x);
         let right_x0 = right.iter().map(|&i| boxes[i].x0).fold(f32::MAX, f32::min);
-        cut(boxes, left, em, (col.0, x), out);
-        cut(boxes, right, em, (right_x0, col.1), out);
+        cut(boxes, left, em, (col.0, x), depth + 1, out);
+        cut(boxes, right, em, (right_x0, col.1), depth + 1, out);
         return;
     }
     // Horizontal: sweep in y order and cut at every wide-enough gap.
@@ -53,23 +62,17 @@ fn cut(boxes: &[BBox], mut idx: Vec<usize>, em: f32, col: (f32, f32), out: &mut 
     let mut reach = boxes[idx[0]].y1;
     for (k, &i) in idx.iter().enumerate().skip(1) {
         let b = &boxes[i];
-        // Shrink by a hair so baseline-touching boxes don't block cuts.
+        // Boxes that touch (within a hair) still separate cleanly; their gap
+        // counts as zero width. Clamping keeps every gap >= 0 so the widest
+        // gap always meets the cut threshold and each level makes progress.
         if b.y0 + 0.01 > reach {
-            gaps.push((k, b.y0 - reach));
+            gaps.push((k, (b.y0 - reach).max(0.0)));
         }
         reach = reach.max(b.y1);
     }
     if gaps.is_empty() {
-        // Overlapping band with no clean channel: order left-to-right,
-        // top-to-bottom by position.
-        idx.sort_by(|&a, &b| {
-            let (ba, bb) = (&boxes[a], &boxes[b]);
-            if ba.v_overlap(bb) > 0.5 * ba.height().min(bb.height()) {
-                ba.x0.total_cmp(&bb.x0)
-            } else {
-                ba.y0.total_cmp(&bb.y0)
-            }
-        });
+        // Overlapping band with no clean channel.
+        positional_order(boxes, &mut idx);
         out.extend(idx.into_iter().map(place));
         return;
     }
@@ -77,11 +80,24 @@ fn cut(boxes: &[BBox], mut idx: Vec<usize>, em: f32, col: (f32, f32), out: &mut 
     let mut start = 0;
     for &(k, w) in &gaps {
         if w >= widest * H_CUT_SHARE {
-            cut(boxes, idx[start..k].to_vec(), em, col, out);
+            cut(boxes, idx[start..k].to_vec(), em, col, depth + 1, out);
             start = k;
         }
     }
-    cut(boxes, idx[start..].to_vec(), em, col, out);
+    debug_assert!(start > 0, "a horizontal cut must split the region");
+    cut(boxes, idx[start..].to_vec(), em, col, depth + 1, out);
+}
+
+/// Left-to-right within a shared baseline band, otherwise top-to-bottom.
+fn positional_order(boxes: &[BBox], idx: &mut [usize]) {
+    idx.sort_by(|&a, &b| {
+        let (ba, bb) = (&boxes[a], &boxes[b]);
+        if ba.v_overlap(bb) > 0.5 * ba.height().min(bb.height()) {
+            ba.x0.total_cmp(&bb.x0)
+        } else {
+            ba.y0.total_cmp(&bb.y0)
+        }
+    });
 }
 
 /// Widest valid vertical channel, as the x coordinate of its left edge.
@@ -116,6 +132,32 @@ mod tests {
 
     fn reading_order(boxes: &[BBox], em: f32) -> Vec<usize> {
         super::reading_order(boxes, em, (72.0, 540.0)).into_iter().map(|p| p.index).collect()
+    }
+
+    #[test]
+    fn touching_and_slightly_overlapping_lines_terminate() {
+        // Gaps of exactly 0 and of -0.005 (within the touch tolerance) used
+        // to produce no cut and recurse forever on the same region.
+        let boxes = vec![
+            b(72.0, 100.0, 300.0, 110.0),
+            b(72.0, 109.995, 300.0, 120.0),
+            b(72.0, 120.0, 300.0, 130.0),
+        ];
+        assert_eq!(reading_order(&boxes, 10.0), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn deep_inputs_do_not_exhaust_the_stack() {
+        // Staircase of shrinking gaps: each level can cut only one gap.
+        let mut boxes = Vec::new();
+        let mut y = 0.0;
+        for i in 0..5000 {
+            boxes.push(b(72.0, y, 300.0, y + 1.0));
+            y += 1.0 + 1000.0 / (i as f32 + 1.0);
+        }
+        let order = reading_order(&boxes, 10.0);
+        assert_eq!(order.len(), 5000);
+        assert!(order.windows(2).all(|w| w[0] < w[1]));
     }
 
     #[test]

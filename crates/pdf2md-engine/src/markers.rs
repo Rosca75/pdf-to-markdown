@@ -108,9 +108,53 @@ fn roman(s: &str) -> Option<u32> {
     (total > 0).then_some(total as u32)
 }
 
+/// Depth of a section number at the start of a heading: `7` → 1,
+/// `7.6.3` → 3, `A.2` → 2, `Annex B` → 1. The number must be followed by
+/// whitespace and then text (or be the whole string when `alone`).
+pub fn section_depth(text: &str, alone: bool) -> Option<u8> {
+    let t = text.trim_start();
+    for word in ["Annex", "Appendix", "ANNEX", "APPENDIX"] {
+        if let Some(rest) = t.strip_prefix(word) {
+            let rest = rest.trim_start();
+            let label: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
+            let ok = !label.is_empty() && label.len() <= 2 && label.chars().next().is_some_and(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
+            return ok.then_some(1);
+        }
+    }
+    let end = t.find(char::is_whitespace).unwrap_or(t.len());
+    let (num, rest) = t.split_at(end);
+    if alone != rest.trim().is_empty() {
+        return None;
+    }
+    let num = num.strip_suffix('.').unwrap_or(num);
+    let parts: Vec<&str> = num.split('.').collect();
+    if parts.is_empty() || parts.len() > 6 {
+        return None;
+    }
+    let first_ok = parts[0].len() <= 2
+        && (parts[0].bytes().all(|b| b.is_ascii_digit())
+            || (parts.len() > 1 && parts[0].len() == 1 && parts[0].bytes().all(|b| b.is_ascii_uppercase())));
+    let rest_ok = parts[1..].iter().all(|p| !p.is_empty() && p.len() <= 3 && p.bytes().all(|b| b.is_ascii_digit()));
+    (first_ok && rest_ok && !parts[0].is_empty()).then_some(parts.len() as u8)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn section_numbers() {
+        assert_eq!(section_depth("7.6.3 Standard Security Handler", false), Some(3));
+        assert_eq!(section_depth("2 Conformance", false), Some(1));
+        assert_eq!(section_depth("4. Results", false), Some(1));
+        assert_eq!(section_depth("A.2 Details", false), Some(2));
+        assert_eq!(section_depth("Annex B (normative)", false), Some(1));
+        assert_eq!(section_depth("7.6.3", true), Some(3));
+        assert_eq!(section_depth("2026 was a good year", false), None);
+        assert_eq!(section_depth("Introduction", false), None);
+        assert_eq!(section_depth("3.5 percent growth", false), Some(2));
+        assert_eq!(section_depth("7.6.3", false), None);
+    }
 
     fn m(s: &str) -> Option<(Marker, &str)> {
         parse(s).map(|p| (p.marker, &s[p.len..]))

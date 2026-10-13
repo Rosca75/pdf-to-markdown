@@ -67,10 +67,17 @@ pub fn classify(raw: Vec<RawBlock>, stats: &DocStats) -> Vec<Block> {
         })
         .collect();
 
-    let mut keys: Vec<HeadingKey> =
-        kinds.iter().filter_map(|k| if let Some(Kind::Heading(h)) = k { Some(*h) } else { None }).collect();
-    keys.sort_by(|a, b| b.half_points.cmp(&a.half_points).then(b.bold.cmp(&a.bold)));
-    keys.dedup();
+    let headings: Vec<(HeadingKey, Option<u8>)> = raw
+        .iter()
+        .zip(&kinds)
+        .filter_map(|(b, k)| match k {
+            Some(Kind::Heading(h)) => {
+                Some((*h, markers::section_depth(&joined_text(b.lines()), false)))
+            }
+            _ => None,
+        })
+        .collect();
+    let levels = HeadingLevels::new(&headings);
 
     // List depth: rank of the marker's x position among the markers of the
     // current consecutive list run.
@@ -84,7 +91,7 @@ pub fn classify(raw: Vec<RawBlock>, stats: &DocStats) -> Vec<Block> {
             (RawKind::Table(t), _) => out.push(Block::Table { rows: t.rows }),
             (RawKind::Text(lines), Some(Kind::Code)) => out.push(code(&lines)),
             (RawKind::Text(lines), Some(Kind::Heading(key))) => {
-                let level = keys.iter().position(|k| *k == key).unwrap_or(0) as u8 + 1;
+                let level = levels.level(key, markers::section_depth(&joined_text(&lines), false));
                 let mut inlines = join_lines(&lines);
                 for i in &mut inlines {
                     i.style = Style { mono: i.style.mono, ..Style::default() };
@@ -118,6 +125,77 @@ pub fn classify(raw: Vec<RawBlock>, stats: &DocStats) -> Vec<Block> {
     out
 }
 
+/// Heading level assignment.
+///
+/// Typography alone ranks headings by size, but many documents set every
+/// section heading at one size and express depth only through numbering
+/// (`7`, `7.6`, `7.6.3`). When at least two headings are numbered, numbering
+/// depth decides; unnumbered headings sharing a numbered heading's style get
+/// that style's usual depth; anything larger than every numbered heading is
+/// the document title and pushes the numbered hierarchy down one level.
+/// Without numbering, distinct styles are ranked by size, then weight.
+struct HeadingLevels {
+    /// Size-ranked keys (fallback and title detection).
+    ranked: Vec<HeadingKey>,
+    numbered: Option<Numbered>,
+}
+
+struct Numbered {
+    max_half_points: i32,
+    offset: u8,
+    /// Most common depth of numbered headings per style.
+    style_depth: Vec<(HeadingKey, u8)>,
+}
+
+impl HeadingLevels {
+    fn new(headings: &[(HeadingKey, Option<u8>)]) -> Self {
+        let mut ranked: Vec<HeadingKey> = headings.iter().map(|h| h.0).collect();
+        ranked.sort_by(|a, b| b.half_points.cmp(&a.half_points).then(b.bold.cmp(&a.bold)));
+        ranked.dedup();
+        let numbered_count = headings.iter().filter(|h| h.1.is_some()).count();
+        let numbered = (numbered_count >= 2).then(|| {
+            let max_half_points = headings.iter().filter(|h| h.1.is_some()).map(|h| h.0.half_points).max().unwrap_or(0);
+            let offset = u8::from(headings.iter().any(|h| h.1.is_none() && h.0.half_points > max_half_points));
+            let mut tally: std::collections::HashMap<(HeadingKey, u8), usize> = std::collections::HashMap::new();
+            for (k, d) in headings {
+                if let Some(d) = d {
+                    *tally.entry((*k, *d)).or_default() += 1;
+                }
+            }
+            let mut style_depth: Vec<(HeadingKey, u8)> = Vec::new();
+            for &(k, _) in tally.keys() {
+                if style_depth.iter().any(|(sk, _)| *sk == k) {
+                    continue;
+                }
+                let best = tally
+                    .iter()
+                    .filter(|((tk, _), _)| *tk == k)
+                    .max_by_key(|((_, d), n)| (**n, std::cmp::Reverse(*d)))
+                    .map(|((_, d), _)| *d)
+                    .unwrap_or(1);
+                style_depth.push((k, best));
+            }
+            Numbered { max_half_points, offset, style_depth }
+        });
+        Self { ranked, numbered }
+    }
+
+    fn level(&self, key: HeadingKey, depth: Option<u8>) -> u8 {
+        let level = match &self.numbered {
+            Some(n) => match depth {
+                Some(d) => n.offset + d,
+                None if key.half_points > n.max_half_points => 1,
+                None => {
+                    let d = n.style_depth.iter().find(|(k, _)| *k == key).map(|(_, d)| *d).unwrap_or(1);
+                    n.offset + d
+                }
+            },
+            None => self.ranked.iter().position(|k| *k == key).unwrap_or(0) as u8 + 1,
+        };
+        level.clamp(1, 6)
+    }
+}
+
 fn code(lines: &[Line]) -> Block {
     let left = lines.iter().map(|l| l.bbox.x0).fold(f32::MAX, f32::min);
     let out = lines
@@ -129,6 +207,10 @@ fn code(lines: &[Line]) -> Block {
         })
         .collect();
     Block::Code { lines: out }
+}
+
+fn joined_text(lines: &[Line]) -> String {
+    lines.iter().map(Line::text).collect::<Vec<_>>().join(" ")
 }
 
 /// Concatenate lines into inlines, re-joining hyphenated words.
@@ -222,6 +304,26 @@ mod tests {
             &stats(),
         );
         assert_eq!(render(&blocks), "# Title\n\n## Section\n\n### Subsection\n\nBody text here.\n\n## Another section\n");
+    }
+
+    #[test]
+    fn numbered_headings_take_depth_from_numbering() {
+        let blocks = classify(
+            vec![
+                raw(vec![sp("Big Cover Title", 72.0, 50.0, 24.0)]),
+                raw(vec![bold(sp("Foreword", 72.0, 80.0, 10.0))]),
+                raw(vec![bold(sp("7 Syntax", 72.0, 100.0, 10.0))]),
+                raw(vec![bold(sp("7.6 Encryption", 72.0, 130.0, 10.0))]),
+                raw(vec![bold(sp("7.6.3 Standard Security Handler", 72.0, 160.0, 10.0))]),
+                raw(vec![sp("Body text here.", 72.0, 190.0, 10.0)]),
+                raw(vec![bold(sp("8 Graphics", 72.0, 220.0, 10.0))]),
+            ],
+            &stats(),
+        );
+        assert_eq!(
+            render(&blocks),
+            "# Big Cover Title\n\n## Foreword\n\n## 7 Syntax\n\n### 7.6 Encryption\n\n#### 7.6.3 Standard Security Handler\n\nBody text here.\n\n## 8 Graphics\n"
+        );
     }
 
     #[test]
