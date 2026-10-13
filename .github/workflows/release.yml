@@ -1,0 +1,178 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Build jobs only read; the publish job below gets contents: write.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: windows
+            os: windows-latest
+            targets: ""
+          - name: linux
+            os: ubuntu-24.04
+            targets: ""
+          - name: macos
+            os: macos-latest
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Derive version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.0.0-dev"
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "Version: ${VERSION}"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: ${{ matrix.targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.name }}
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libxdo-dev \
+            libssl-dev \
+            build-essential \
+            curl \
+            wget \
+            file
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install and build frontend
+        run: |
+          npm ci
+          npm run build
+
+      # Fail fast: run the full test suites before spending time on bundling.
+      - name: Frontend tests
+        run: npm test
+
+      - name: Rust tests
+        run: cargo test --workspace --release
+
+      - name: Build (Windows portable exe)
+        if: runner.os == 'Windows'
+        run: npm run tauri -- build --no-bundle
+
+      - name: Build (Linux AppImage)
+        if: runner.os == 'Linux'
+        env:
+          # linuxdeploy's bundled strip is too old for newer toolchains.
+          NO_STRIP: "true"
+          # GitHub runners have no FUSE; let linuxdeploy run without mounting.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: npm run tauri -- build --bundles appimage
+
+      - name: Build (macOS universal app)
+        if: runner.os == 'macOS'
+        run: npm run tauri -- build --target universal-apple-darwin --bundles app
+
+      - name: Package artifact
+        run: |
+          mkdir -p out
+          case "${RUNNER_OS}" in
+            Windows)
+              cp target/release/pdf2md.exe "out/PDF2MD_${VERSION}_windows_x64_portable.exe"
+              ;;
+            Linux)
+              APPIMAGE="$(find target/release/bundle/appimage -maxdepth 1 -name '*.AppImage' | head -n 1)"
+              if [ -z "${APPIMAGE}" ]; then
+                echo "No .AppImage found under target/release/bundle/appimage" >&2
+                exit 1
+              fi
+              cp "${APPIMAGE}" "out/PDF2MD_${VERSION}_linux_x86_64.AppImage"
+              ;;
+            macOS)
+              OUT_DIR="$PWD/out"
+              cd target/universal-apple-darwin/release/bundle/macos
+              ditto -c -k --sequesterRsrc --keepParent PDF2MD.app "${OUT_DIR}/PDF2MD_${VERSION}_macos_universal.zip"
+              ;;
+          esac
+          ls -lh out
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pdf2md-${{ matrix.name }}
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: pdf2md-*
+          path: release-files
+          merge-multiple: true
+
+      - name: Checksums and release notes
+        run: |
+          (cd release-files && sha256sum PDF2MD_* > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          cat > release-body.md <<'BODY'
+          Portable, **unsigned** builds of PDF2MD (PDF to Markdown). No installer is needed.
+
+          Because the binaries are not code-signed, your OS will warn you the first time you run them:
+
+          - **Windows**: SmartScreen shows "Windows protected your PC". Click **More info**, then **Run anyway**. Requires WebView2 (included with Windows 11).
+          - **macOS**: right-click `PDF2MD.app`, choose **Open**, then confirm. Or run `xattr -cr PDF2MD.app` in a terminal once.
+          - **Linux**: `chmod +x PDF2MD_*.AppImage`, then run it. On Ubuntu 24.04 you may need `sudo apt install libfuse2t64`.
+
+          Verify downloads against `SHA256SUMS.txt`.
+          BODY
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: PDF2MD ${{ github.ref_name }}
+          body_path: release-body.md
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release-files/PDF2MD_*
+            release-files/SHA256SUMS.txt

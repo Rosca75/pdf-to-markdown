@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = ["crates/pdf2md-engine", "crates/pdf-fixtures", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/Rosca75/pdf-to-markdown"
+rust-version = "1.88"
+
+[workspace.dependencies]
+pdf_oxide = "=0.3.78"
+# pdf_oxide 0.3.78 declares office_oxide = "0.1.9" but fails to compile against
+# office_oxide >= 0.1.13 (new required struct field). Pin the last compatible release.
+office_oxide = { version = "=0.1.9", default-features = false }
+rayon = "1.10"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+unicode-normalization = "0.1"
+tempfile = "3"
+toml = "0.8"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "unwind"
+
+# pdf_oxide dominates compile time; optimise it even in dev/test builds so
+# corpus integration tests run at realistic speed.
+[profile.dev.package.pdf_oxide]
+opt-level = 2
+
+[profile.bench]
+debug = true
+strip = false

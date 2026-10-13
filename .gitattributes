@@ -1,0 +1,9 @@
+# Text files are stored and checked out with LF on every platform.
+* text=auto eol=lf
+
+# Binary assets must never be touched by line-ending conversion: the corpus
+# PDFs are byte-exact test inputs (offsets, deliberate corruption).
+*.pdf binary
+*.png binary
+*.ico binary
+*.icns binary
