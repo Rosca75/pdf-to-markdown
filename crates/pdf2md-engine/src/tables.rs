@@ -25,6 +25,9 @@ pub struct Table {
 }
 
 const SNAP: f32 = 2.5;
+/// Pages with more ruling lines than this are vector art (maps, charts,
+/// CAD), not tables; pairing rules is quadratic, so skip the detector.
+const MAX_RULES: usize = 2000;
 
 pub fn detect(lines: &[Line], rules: &[Rule]) -> Vec<Table> {
     let mut used = vec![false; lines.len()];
@@ -40,7 +43,7 @@ fn ruled(lines: &[Line], rules: &[Rule], used: &mut [bool]) -> Vec<Table> {
         .iter()
         .filter(|r| r.bbox.width().max(r.bbox.height()) >= 5.0)
         .partition(|r| r.bbox.width() >= r.bbox.height());
-    if h.len() < 2 || v.len() < 2 {
+    if h.len() < 2 || v.len() < 2 || h.len() + v.len() > MAX_RULES {
         return Vec::new();
     }
     let all: Vec<&Rule> = h.iter().chain(v.iter()).copied().collect();

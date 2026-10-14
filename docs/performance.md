@@ -46,7 +46,7 @@ Extraction is pdf_oxide content-stream parsing plus line building. It dominates,
 | 6 | Allocation reduction in layout (cached line text, no `format!` in hot paths) | Layout is ≤ 5 % of total | Partly done (marker probe without `format!`). The rest was not worth the complexity at 5 % share. |
 | 7 | Parallel layout (tables, order, segmentation per page) | At most 3–5 % of total | Rejected: below measurement noise. |
 | 8 | Streaming / memory-mapped input | Avoid the extra copies of the file bytes | Rejected: pdf_oxide's `from_bytes` copies its input internally, so there is no zero-copy path in this version. |
-| 9 | Larger worker stacks | Robustness, not speed: hostile PDFs can nest deeply, and a stack overflow aborts the process | **Done** (16 MiB per worker). |
+| 9 | Larger worker stacks | Robustness, not speed: hostile PDFs can nest deeply, and a stack overflow aborts the process | **Done.** The whole conversion runs on a 16 MiB-stack thread, workers get the same stack, and panics are mapped to errors. |
 
 ## Results
 

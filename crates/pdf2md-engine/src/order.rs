@@ -106,15 +106,35 @@ fn cut(
 }
 
 /// Left-to-right within a shared baseline band, otherwise top-to-bottom.
+///
+/// Rows are formed first and then sorted, so every comparison is a total
+/// order (a comparator that switches between x and y depending on overlap
+/// is intransitive, and the standard sort may panic on it).
 fn positional_order(boxes: &[BBox], idx: &mut [usize]) {
     idx.sort_by(|&a, &b| {
-        let (ba, bb) = (&boxes[a], &boxes[b]);
-        if ba.v_overlap(bb) > 0.5 * ba.height().min(bb.height()) {
-            ba.x0.total_cmp(&bb.x0)
-        } else {
-            ba.y0.total_cmp(&bb.y0)
-        }
+        boxes[a]
+            .y0
+            .total_cmp(&boxes[b].y0)
+            .then(boxes[a].x0.total_cmp(&boxes[b].x0))
     });
+    let mut rows: Vec<(BBox, Vec<usize>)> = Vec::new();
+    for &i in idx.iter() {
+        let b = boxes[i];
+        match rows.last_mut() {
+            Some((band, members)) if band.v_overlap(&b) > 0.5 * band.height().min(b.height()) => {
+                members.push(i);
+            }
+            _ => rows.push((b, vec![i])),
+        }
+    }
+    let mut k = 0;
+    for (_, mut members) in rows {
+        members.sort_by(|&a, &b| boxes[a].x0.total_cmp(&boxes[b].x0));
+        for i in members {
+            idx[k] = i;
+            k += 1;
+        }
+    }
 }
 
 /// Widest valid vertical channel, as the x coordinate of its left edge.
@@ -178,6 +198,22 @@ mod tests {
         let order = reading_order(&boxes, 10.0);
         assert_eq!(order.len(), 5000);
         assert!(order.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    #[test]
+    fn positional_fallback_is_a_total_order() {
+        // Staggered, overlapping boxes (no clean channel) used to go through
+        // an intransitive comparator; sort may panic on such input.
+        let mut boxes = Vec::new();
+        for i in 0..200 {
+            let x = (i % 7) as f32 * 30.0;
+            let y = i as f32 * 3.0;
+            boxes.push(b(x, y, x + 40.0, y + 12.0 + (i % 5) as f32 * 4.0));
+        }
+        let order = reading_order(&boxes, 10.0);
+        let mut seen = order.clone();
+        seen.sort_unstable();
+        assert_eq!(seen, (0..200).collect::<Vec<_>>());
     }
 
     #[test]

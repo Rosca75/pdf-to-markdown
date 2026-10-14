@@ -33,9 +33,6 @@ const MIN_PAGES_PER_WORKER: usize = 8;
 /// here as 3.5x + 8 MiB. Large files therefore get fewer workers.
 const WORKER_MEMORY_BUDGET: usize = 192 * 1024 * 1024;
 const WORKER_FIXED_COST: usize = 8 * 1024 * 1024;
-/// Generous stacks: hostile PDFs can nest content deeply, and a stack
-/// overflow aborts the whole process.
-const WORKER_STACK: usize = 16 * 1024 * 1024;
 
 /// One page after extraction, ready for layout.
 #[derive(Debug, Default)]
@@ -80,7 +77,7 @@ pub fn run(
             let (next, cancel) = (&next, cancel);
             let password = opts.password.clone();
             let spawned = std::thread::Builder::new()
-                .stack_size(WORKER_STACK)
+                .stack_size(crate::PARSE_STACK)
                 .spawn_scoped(scope, move || {
                     // A worker that cannot open the document simply contributes
                     // nothing; the calling thread processes every remaining page.
@@ -207,7 +204,7 @@ fn work(
             return;
         }
         let r = match extract::page(doc, i) {
-            Ok(page) => prepare(doc, page),
+            Ok(page) => extract::guarded(|| prepare(doc, page)).unwrap_or_else(PageResult::Failed),
             Err(e) => PageResult::Failed(e),
         };
         if !sink(i, r) {

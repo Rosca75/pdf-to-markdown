@@ -85,12 +85,41 @@ pub fn convert_path(
     convert_bytes(bytes, opts, progress, cancel)
 }
 
+/// Stack for the conversion thread and its workers. Hostile PDFs can nest
+/// objects and content deeply; a stack overflow aborts the whole process
+/// and cannot be caught, so every thread that parses gets a generous stack.
+pub(crate) const PARSE_STACK: usize = 16 * 1024 * 1024;
+
 /// Convert an in-memory PDF.
+///
+/// Runs on a dedicated thread with a large stack (see [`PARSE_STACK`]);
+/// a panic anywhere in the pipeline is reported as [`ConvertError::Corrupt`]
+/// instead of unwinding into the caller.
 pub fn convert_bytes(
     bytes: Vec<u8>,
     opts: &Options,
     progress: &(dyn Fn(Progress) + Sync),
     cancel: &CancelToken,
 ) -> Result<Conversion, ConvertError> {
-    pipeline::run(bytes, opts, progress, cancel)
+    std::thread::scope(|scope| {
+        let handle = std::thread::Builder::new()
+            .name("pdf2md-convert".into())
+            .stack_size(PARSE_STACK)
+            .spawn_scoped(scope, || pipeline::run(bytes, opts, progress, cancel));
+        match handle {
+            Ok(h) => h
+                .join()
+                .unwrap_or_else(|panic| Err(ConvertError::Corrupt(panic_text(&panic)))),
+            Err(e) => Err(ConvertError::Io(format!(
+                "cannot start conversion thread: {e}"
+            ))),
+        }
+    })
+}
+
+fn panic_text(p: &Box<dyn std::any::Any + Send>) -> String {
+    p.downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| p.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "internal converter failure".into())
 }

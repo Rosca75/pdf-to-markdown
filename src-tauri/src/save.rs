@@ -65,7 +65,10 @@ pub fn output_stem(name: &str) -> String {
     if cleaned.is_empty() {
         return "document".to_string();
     }
-    if RESERVED.iter().any(|r| r.eq_ignore_ascii_case(cleaned)) {
+    // Windows treats `CON`, `CON.txt` and `con.report` alike: the device
+    // name is matched on the part before the first dot.
+    let device = cleaned.split('.').next().unwrap_or(cleaned).trim_end();
+    if RESERVED.iter().any(|r| r.eq_ignore_ascii_case(device)) {
         return format!("_{cleaned}");
     }
     cleaned.to_string()
@@ -145,6 +148,14 @@ fn write_unique(
         .tempfile_in(dir)?;
     tmp.write_all(content.as_bytes())?;
     tmp.flush()?;
+    // Temp files are created 0600; a saved document should be readable
+    // like any other file the user creates.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tmp.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o644))?;
+    }
     tmp.as_file().sync_all()?;
 
     let mut from = 0;
@@ -249,6 +260,14 @@ mod tests {
     fn candidate_names() {
         assert_eq!(candidate_name("x", 0), "x.md");
         assert_eq!(candidate_name("x", 2), "x (2).md");
+    }
+
+    #[test]
+    fn reserved_device_names_are_prefixed_even_with_dots() {
+        assert_eq!(output_stem("CON.pdf"), "_CON");
+        assert_eq!(output_stem("con.report.pdf"), "_con.report");
+        assert_eq!(output_stem("lpt1 .final.pdf"), "_lpt1 .final");
+        assert_eq!(output_stem("console.pdf"), "console");
     }
 
     #[test]

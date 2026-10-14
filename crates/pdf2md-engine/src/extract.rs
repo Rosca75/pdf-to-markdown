@@ -274,10 +274,7 @@ fn links(doc: &PdfDocument, index: usize, frame: &Frame) -> Vec<Link> {
                 pdf_oxide::annotations::LinkAction::Uri(u) => u,
                 _ => return None,
             };
-            let uri = uri.trim();
-            if uri.is_empty() {
-                return None;
-            }
+            let uri = safe_uri(&uri)?;
             let [x0, y0, x1, y1] = a.rect?;
             let (x0, x1) = (x0.min(x1) as f32, x0.max(x1) as f32);
             let (y0, y1) = (y0.min(y1) as f32, y0.max(y1) as f32);
@@ -289,6 +286,22 @@ fn links(doc: &PdfDocument, index: usize, frame: &Frame) -> Vec<Link> {
         .collect()
 }
 
+/// Accept only link targets that are safe to publish in Markdown: web,
+/// mail and FTP schemes, no control characters. Anything else (javascript:,
+/// data:, file:, URIs smuggling line breaks) is dropped and the text is kept
+/// unlinked.
+fn safe_uri(raw: &str) -> Option<String> {
+    let uri = raw.trim();
+    if uri.is_empty() || uri.chars().any(|c| c.is_control()) {
+        return None;
+    }
+    let lower = uri.to_ascii_lowercase();
+    let allowed = ["http://", "https://", "mailto:", "ftp://"]
+        .iter()
+        .any(|s| lower.starts_with(s));
+    allowed.then(|| uri.to_owned())
+}
+
 /// Run `f`, converting a panic into an error message. pdf_oxide is robust
 /// but PDF inputs are adversarial; a panic must never take the app down.
 pub fn guarded<T>(f: impl FnOnce() -> T) -> Result<T, String> {
@@ -298,4 +311,23 @@ pub fn guarded<T>(f: impl FnOnce() -> T) -> Result<T, String> {
             .or_else(|| p.downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "internal parser failure".into())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safe_uri;
+
+    #[test]
+    fn link_targets_are_filtered() {
+        assert_eq!(
+            safe_uri(" https://example.com/a "),
+            Some("https://example.com/a".into())
+        );
+        assert_eq!(safe_uri("MAILTO:a@b.c"), Some("MAILTO:a@b.c".into()));
+        assert_eq!(safe_uri("javascript:alert(1)"), None);
+        assert_eq!(safe_uri("data:text/html,x"), None);
+        assert_eq!(safe_uri("file:///etc/passwd"), None);
+        assert_eq!(safe_uri("http://x\n\n# Injected"), None);
+        assert_eq!(safe_uri(""), None);
+    }
 }

@@ -136,7 +136,7 @@ fn push_inlines(out: &mut String, inlines: &[Inline], ctx: Ctx) {
     }
     // Paragraph text starting with what looks like a block marker must be
     // escaped so it stays a paragraph.
-    if ctx == Ctx::Paragraph {
+    if matches!(ctx, Ctx::Paragraph | Ctx::ListItem) {
         escape_block_start(out, start);
     }
 }
@@ -221,15 +221,15 @@ fn push_inline(out: &mut String, inl: &Inline, ctx: Ctx, _at_start: bool) {
     }
 }
 
+/// Percent-encode every character that could end the link destination or
+/// change the surrounding structure (whitespace, controls, brackets,
+/// backslash, and `|`, which splits GFM table cells before inline parsing).
 fn escape_url(uri: &str) -> String {
     let mut s = String::with_capacity(uri.len());
     for c in uri.chars() {
         match c {
-            ' ' => s.push_str("%20"),
-            '(' => s.push_str("%28"),
-            ')' => s.push_str("%29"),
-            '<' => s.push_str("%3C"),
-            '>' => s.push_str("%3E"),
+            c if (c as u32) <= 0x20 || c == '\u{7f}' => s.push_str(&format!("%{:02X}", c as u32)),
+            '(' | ')' | '<' | '>' | '|' | '\\' | '`' => s.push_str(&format!("%{:02X}", c as u32)),
             c => s.push(c),
         }
     }
@@ -428,6 +428,32 @@ mod tests {
             plain(" now."),
         ])]);
         assert_eq!(md, "Visit [example.com](https://example.com/a%20b) now.\n");
+    }
+
+    #[test]
+    fn link_destinations_are_structure_safe() {
+        let link = Some(Arc::<str>::from("https://x.test/a|b c\\d"));
+        let md = render(&[Block::Table {
+            rows: vec![
+                vec![vec![plain("H")]],
+                vec![vec![Inline {
+                    text: "go".into(),
+                    style: Style::default(),
+                    link,
+                }]],
+            ],
+        }]);
+        assert!(md.contains("[go](https://x.test/a%7Cb%20c%5Cd)"), "{md}");
+    }
+
+    #[test]
+    fn list_item_text_that_looks_like_a_marker_is_escaped() {
+        let md = render(&[Block::ListItem {
+            depth: 0,
+            marker: Marker::Bullet,
+            inlines: vec![plain("1. not nested")],
+        }]);
+        assert_eq!(md, "- 1\\. not nested\n");
     }
 
     #[test]
