@@ -21,7 +21,9 @@ jobs:
     name: Build (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: true
+      # Let every platform finish so one failure doesn't hide another; the
+      # publish job still requires all three builds.
+      fail-fast: false
       matrix:
         include:
           - name: windows
@@ -124,9 +126,14 @@ jobs:
               cp "${APPIMAGE}" "out/PDF2MD_${VERSION}_linux_x86_64.AppImage"
               ;;
             macOS)
-              OUT_DIR="$PWD/out"
-              cd target/universal-apple-darwin/release/bundle/macos
-              ditto -c -k --sequesterRsrc --keepParent PDF2MD.app "${OUT_DIR}/PDF2MD_${VERSION}_macos_universal.zip"
+              # No `cd`: the step ends with `ls out` from the repo root.
+              APP="$(find target/universal-apple-darwin/release/bundle/macos -maxdepth 1 -name '*.app' -type d | head -n 1)"
+              if [ -z "${APP}" ]; then
+                echo "No .app found under target/universal-apple-darwin/release/bundle/macos" >&2
+                find target -maxdepth 5 -type d -name '*.app' >&2 || true
+                exit 1
+              fi
+              ditto -c -k --sequesterRsrc --keepParent "${APP}" "out/PDF2MD_${VERSION}_macos_universal.zip"
               ;;
           esac
           ls -lh out
