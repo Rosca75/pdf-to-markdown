@@ -23,6 +23,10 @@ pub fn render(blocks: &[Block]) -> String {
                 }
                 out.push(' ');
                 push_inlines(&mut out, inlines, Ctx::Heading);
+                // A trailing `#` run would be read as a closing sequence and dropped.
+                if out.ends_with('#') {
+                    out.insert(out.len() - 1, '\\');
+                }
             }
             Block::Paragraph { inlines } => push_inlines(&mut out, inlines, Ctx::Paragraph),
             Block::ListItem {
@@ -185,6 +189,10 @@ fn push_inline(out: &mut String, inl: &Inline, ctx: Ctx, _at_start: bool) {
         out.push('[');
     }
     let Style { bold, italic, mono } = inl.style;
+    // In a table cell `\|` escapes the pipe even inside a code span, so a
+    // backslash before a pipe cannot be kept literal there: fall back to
+    // escaped plain text, which keeps every character.
+    let mono = mono && !(ctx == Ctx::TableCell && core.contains("\\|"));
     if mono {
         let ticks = "`".repeat(longest_run(core, '`') + 1);
         out.push_str(&ticks);
@@ -493,6 +501,40 @@ mod tests {
             },
         ])]);
         assert_eq!(md, "Run `cargo *test*`\n");
+    }
+
+    #[test]
+    fn heading_trailing_hash_is_escaped() {
+        let h = |t: &str| {
+            render(&[Block::Heading {
+                level: 2,
+                inlines: vec![plain(t)],
+            }])
+        };
+        assert_eq!(h("Issue #"), "## Issue \\#\n");
+        assert_eq!(h("C#"), "## C\\#\n");
+        assert_eq!(h("#"), "## \\#\n");
+        assert_eq!(h("#1 result"), "## #1 result\n");
+    }
+
+    #[test]
+    fn table_code_with_backslash_pipe_falls_back_to_text() {
+        let mono = |t: &str| Inline {
+            text: t.into(),
+            style: Style {
+                mono: true,
+                ..Style::default()
+            },
+            link: None,
+        };
+        let md = render(&[Block::Table {
+            rows: vec![vec![vec![plain("h")]], vec![vec![mono("a\\|b")]]],
+        }]);
+        assert_eq!(md, "| h |\n| --- |\n| a\\\\\\|b |\n");
+        let md = render(&[Block::Table {
+            rows: vec![vec![vec![plain("h")]], vec![vec![mono("a|b")]]],
+        }]);
+        assert_eq!(md, "| h |\n| --- |\n| `a\\|b` |\n");
     }
 
     #[test]

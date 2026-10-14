@@ -116,6 +116,7 @@ describe("welcome state", () => {
     expect(text(h, "#pv-state-title")).toContain("Add PDFs");
     expect(q(h, "#pv-text").hidden).toBe(true);
     expect(q<HTMLButtonElement>(h, "#copy").disabled).toBe(true);
+    expect(q<HTMLButtonElement>(h, "#pv-mode").disabled).toBe(true);
     expect(q(h, "#progress").hidden).toBe(true);
     expect(q(h, "#list-head").hidden).toBe(true);
     const dz = q(h, "#dropzone");
@@ -363,7 +364,8 @@ describe("selection and preview", () => {
     expect(rows(h)[0].classList.contains("is-selected")).toBe(true);
     expect(apiOf(h).getMarkdown).toHaveBeenCalledTimes(1);
     expect(apiOf(h).getMarkdown).toHaveBeenCalledWith("id1");
-    expect(q(h, "#pv-text").hidden).toBe(false);
+    expect(q(h, "#pv-rendered").hidden).toBe(false);
+    expect(q(h, "#pv-text").hidden).toBe(true);
     expect(q(h, "#pv-text").textContent).toBe("# Markdown of id1");
     expect(text(h, "#pv-title")).toBe("a.pdf");
     expect(q<HTMLButtonElement>(h, "#copy").disabled).toBe(false);
@@ -476,6 +478,98 @@ describe("selection and preview", () => {
     expect(pre.tagName).toBe("PRE");
     expect(pre.getAttribute("tabindex")).toBe("0");
     expect(pre.hasAttribute("contenteditable")).toBe(false);
+  });
+});
+
+describe("raw and rendered views", () => {
+  const SAMPLE = "# Title\n\nSome **bold** text.\n";
+
+  async function ready(h: Harness, md = SAMPLE) {
+    apiOf(h).getMarkdown.mockResolvedValueOnce(md);
+    await addViaDialog(h, "C:\\a.pdf");
+    h.done(okDone("id1"));
+    await flush();
+  }
+
+  it("shows the rendered Markdown first", async () => {
+    const h = await setup();
+    await ready(h);
+    const md = q(h, "#pv-rendered");
+    expect(md.hidden).toBe(false);
+    expect(md.querySelector("h1")?.textContent).toBe("Title");
+    expect(md.querySelector("strong")?.textContent).toBe("bold");
+    expect(q(h, "#pv-text").hidden).toBe(true);
+    expect(text(h, "#pv-mode")).toBe("Show raw");
+    expect(q<HTMLButtonElement>(h, "#pv-mode").disabled).toBe(false);
+  });
+
+  it("switches to raw text and back with one button", async () => {
+    const h = await setup();
+    await ready(h);
+    q(h, "#pv-mode").click();
+    expect(q(h, "#pv-text").hidden).toBe(false);
+    expect(q(h, "#pv-text").textContent).toBe(SAMPLE);
+    expect(q(h, "#pv-rendered").hidden).toBe(true);
+    expect(text(h, "#pv-mode")).toBe("Show Markdown");
+    q(h, "#pv-mode").click();
+    expect(q(h, "#pv-rendered").hidden).toBe(false);
+    expect(q(h, "#pv-text").hidden).toBe(true);
+    expect(text(h, "#pv-mode")).toBe("Show raw");
+  });
+
+  it("keeps the chosen view when another file is selected", async () => {
+    const h = await setup();
+    await addViaDialog(h, "C:\\a.pdf", "C:\\b.pdf");
+    h.done(okDone("id1"));
+    h.done(okDone("id2"));
+    await flush();
+    q(h, "#pv-mode").click();
+    rows(h)[1].querySelector<HTMLButtonElement>(".file-main")!.click();
+    await flush();
+    expect(q(h, "#pv-text").hidden).toBe(false);
+    expect(q(h, "#pv-text").textContent).toBe("# Markdown of id2");
+  });
+
+  it("re-renders the Markdown view for a new document", async () => {
+    const h = await setup();
+    await addViaDialog(h, "C:\\a.pdf", "C:\\b.pdf");
+    h.done(okDone("id1"));
+    h.done(okDone("id2"));
+    await flush();
+    expect(q(h, "#pv-rendered h1")?.textContent).toBe("Markdown of id1");
+    rows(h)[1].querySelector<HTMLButtonElement>(".file-main")!.click();
+    await flush();
+    expect(q(h, "#pv-rendered h1")?.textContent).toBe("Markdown of id2");
+  });
+
+  it("copies the raw Markdown from either view", async () => {
+    const h = await setup();
+    await ready(h);
+    q(h, "#copy").click();
+    await flush();
+    expect(h.copy).toHaveBeenLastCalledWith(SAMPLE);
+    q(h, "#pv-mode").click();
+    q(h, "#copy").click();
+    await flush();
+    expect(h.copy).toHaveBeenLastCalledWith(SAMPLE);
+  });
+
+  it("renders document text as text, never as markup", async () => {
+    const h = await setup();
+    await ready(h, "<img src=x onerror=alert(1)> [x](javascript:alert(1))\n");
+    const md = q(h, "#pv-rendered");
+    expect(md.querySelector("img")).toBeNull();
+    expect(md.querySelector("[href]")).toBeNull();
+    expect(md.textContent).toContain("<img src=x onerror=alert(1)>");
+  });
+
+  it("empties both views when the file is removed", async () => {
+    const h = await setup();
+    await ready(h);
+    rows(h)[0].querySelector<HTMLButtonElement>(".file-remove")?.click();
+    expect(q(h, "#pv-rendered").hidden).toBe(true);
+    expect(q(h, "#pv-rendered").childElementCount).toBe(0);
+    expect(q<HTMLButtonElement>(h, "#pv-mode").disabled).toBe(true);
   });
 });
 

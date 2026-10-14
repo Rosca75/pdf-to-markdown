@@ -25,6 +25,9 @@ export type Preview =
   | { kind: "ready"; id: string; text: string }
   | { kind: "error"; id: string; message: string };
 
+/** How the preview shows the Markdown: rendered, or as raw text. */
+export type PreviewMode = "markdown" | "raw";
+
 export interface Notice {
   seq: number;
   tone: "info" | "warn" | "error";
@@ -51,6 +54,7 @@ export interface State {
   files: FileItem[];
   selectedId: string | null;
   preview: Preview;
+  previewMode: PreviewMode;
   notice: Notice | null;
   saving: boolean;
   result: SaveSummary | null;
@@ -65,6 +69,7 @@ export function initialState(): State {
     files: [],
     selectedId: null,
     preview: { kind: "none" },
+    previewMode: "markdown",
     notice: null,
     saving: false,
     result: null,
@@ -378,6 +383,10 @@ export function previewRetry(state: State): State {
     preview,
     seq: preview.kind === "loading" ? preview.seq : state.seq,
   };
+}
+
+export function togglePreviewMode(state: State): State {
+  return { ...state, previewMode: state.previewMode === "markdown" ? "raw" : "markdown" };
 }
 
 export function setDragging(state: State, dragging: boolean): State {

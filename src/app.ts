@@ -25,6 +25,7 @@ import {
   setCopied,
   setDragging,
   setNotice,
+  togglePreviewMode,
   type FileItem,
   type SaveSummary,
   type Store,
@@ -197,6 +198,7 @@ export async function mount(root: HTMLElement, opts: MountOptions): Promise<App>
   refs.noticeDismiss.addEventListener("click", () => store.update(dismissNotice));
   refs.resultDismiss.addEventListener("click", () => store.update(dismissResult));
   refs.pvRetry.addEventListener("click", () => store.update(previewRetry));
+  refs.pvMode.addEventListener("click", () => store.update(togglePreviewMode));
 
   refs.copy.addEventListener("click", () => {
     const p = store.get().preview;

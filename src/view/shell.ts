@@ -19,8 +19,10 @@ export interface Refs {
   files: HTMLUListElement;
   pvTitle: HTMLElement;
   pvMeta: HTMLElement;
+  pvMode: HTMLButtonElement;
   copy: HTMLButtonElement;
   pvText: HTMLElement;
+  pvRendered: HTMLElement;
   pvState: HTMLElement;
   pvStateTitle: HTMLElement;
   pvStateBody: HTMLElement;
@@ -87,10 +89,12 @@ const TEMPLATE = `
       <div class="preview-head">
         <h2 id="pv-title" class="pv-title">Preview</h2>
         <span id="pv-meta" class="pv-meta"></span>
+        <button id="pv-mode" class="btn" type="button" disabled>Show raw</button>
         <button id="copy" class="btn" type="button" disabled>Copy</button>
       </div>
       <div class="preview-body">
         <pre id="pv-text" class="pv-text" tabindex="0" aria-label="Extracted Markdown (read-only)" hidden></pre>
+        <div id="pv-rendered" class="pv-md" tabindex="0" role="document" aria-label="Rendered Markdown (read-only)" hidden></div>
         <div id="pv-state" class="pv-state">
           <p id="pv-state-title" class="pv-state-title"></p>
           <p id="pv-state-body" class="pv-state-body"></p>
@@ -142,8 +146,10 @@ export function buildShell(root: HTMLElement): Refs {
     files: f("#files"),
     pvTitle: f("#pv-title"),
     pvMeta: f("#pv-meta"),
+    pvMode: f("#pv-mode"),
     copy: f("#copy"),
     pvText: f("#pv-text"),
+    pvRendered: f("#pv-rendered"),
     pvState: f("#pv-state"),
     pvStateTitle: f("#pv-state-title"),
     pvStateBody: f("#pv-state-body"),

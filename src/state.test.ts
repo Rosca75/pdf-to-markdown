@@ -19,6 +19,7 @@ import {
   savingFinished,
   savingStarted,
   selectFile,
+  togglePreviewMode,
   type State,
 } from "./state";
 
@@ -364,5 +365,21 @@ describe("store", () => {
     off();
     store.update((s) => addPaths(s, ["b.pdf"], ids()).state);
     expect(calls).toBe(1);
+  });
+});
+
+describe("preview mode", () => {
+  it("starts on the rendered view and toggles both ways", () => {
+    const s = initialState();
+    expect(s.previewMode).toBe("markdown");
+    const raw = togglePreviewMode(s);
+    expect(raw.previewMode).toBe("raw");
+    expect(togglePreviewMode(raw).previewMode).toBe("markdown");
+  });
+
+  it("keeps the chosen mode when the selection changes", () => {
+    let s = togglePreviewMode(withFiles("C:\\a.pdf", "C:\\b.pdf"));
+    s = selectFile(s, "id2");
+    expect(s.previewMode).toBe("raw");
   });
 });
