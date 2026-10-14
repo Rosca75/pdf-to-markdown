@@ -11,7 +11,8 @@ pub struct ParsedMarker {
 }
 
 const BULLETS: &[char] = &[
-    '•', '◦', '▪', '▫', '●', '○', '■', '□', '‣', '⁃', '∙', '·', '➢', '►', '▸', '▹', '❖', '✓', '✔', '➤', '\u{F0B7}',
+    '•', '◦', '▪', '▫', '●', '○', '■', '□', '‣', '⁃', '∙', '·', '➢', '►', '▸', '▹', '❖', '✓', '✔',
+    '➤', '\u{F0B7}',
 ];
 
 /// Recognise a list marker at the start of `text`.
@@ -30,7 +31,10 @@ pub fn parse(text: &str) -> Option<ParsedMarker> {
         if rest.trim().is_empty() {
             return None;
         }
-        return Some(ParsedMarker { marker: Marker::Bullet, len: len + ws });
+        return Some(ParsedMarker {
+            marker: Marker::Bullet,
+            len: len + ws,
+        });
     }
     if matches!(first, '-' | '–' | '*' | '+') {
         let len = first.len_utf8();
@@ -39,20 +43,34 @@ pub fn parse(text: &str) -> Option<ParsedMarker> {
         if ws == 0 || rest.trim().is_empty() {
             return None;
         }
-        return Some(ParsedMarker { marker: Marker::Bullet, len: len + ws });
+        return Some(ParsedMarker {
+            marker: Marker::Bullet,
+            len: len + ws,
+        });
     }
     parse_ordered(text)
 }
 
 fn parse_ordered(text: &str) -> Option<ParsedMarker> {
-    let (open, body_start) = if text.starts_with('(') { (true, 1) } else { (false, 0) };
-    let body: String = text[body_start..].chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
+    let (open, body_start) = if text.starts_with('(') {
+        (true, 1)
+    } else {
+        (false, 0)
+    };
+    let body: String = text[body_start..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric())
+        .collect();
     if body.is_empty() {
         return None;
     }
     let after = &text[body_start + body.len()..];
     let close = after.chars().next()?;
-    let ok_close = if open { close == ')' } else { close == '.' || close == ')' };
+    let ok_close = if open {
+        close == ')'
+    } else {
+        close == '.' || close == ')'
+    };
     if !ok_close {
         return None;
     }
@@ -62,13 +80,24 @@ fn parse_ordered(text: &str) -> Option<ParsedMarker> {
         return None;
     }
     let n = ordinal(&body)?;
-    let marker = if close == ')' { Marker::OrderedParen(n) } else { Marker::Ordered(n) };
-    Some(ParsedMarker { marker, len: body_start + body.len() + 1 + ws })
+    let marker = if close == ')' {
+        Marker::OrderedParen(n)
+    } else {
+        Marker::Ordered(n)
+    };
+    Some(ParsedMarker {
+        marker,
+        len: body_start + body.len() + 1 + ws,
+    })
 }
 
 fn ordinal(body: &str) -> Option<u32> {
     if body.bytes().all(|b| b.is_ascii_digit()) {
-        return if body.len() <= 3 { body.parse().ok() } else { None };
+        return if body.len() <= 3 {
+            body.parse().ok()
+        } else {
+            None
+        };
     }
     if let Some(n) = roman(body) {
         // A lone "i" or "v" or "x" could be a letter; letters win for the
@@ -116,8 +145,16 @@ pub fn section_depth(text: &str, alone: bool) -> Option<u8> {
     for word in ["Annex", "Appendix", "ANNEX", "APPENDIX"] {
         if let Some(rest) = t.strip_prefix(word) {
             let rest = rest.trim_start();
-            let label: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
-            let ok = !label.is_empty() && label.len() <= 2 && label.chars().next().is_some_and(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
+            let label: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric())
+                .collect();
+            let ok = !label.is_empty()
+                && label.len() <= 2
+                && label
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
             return ok.then_some(1);
         }
     }
@@ -133,8 +170,12 @@ pub fn section_depth(text: &str, alone: bool) -> Option<u8> {
     }
     let first_ok = parts[0].len() <= 2
         && (parts[0].bytes().all(|b| b.is_ascii_digit())
-            || (parts.len() > 1 && parts[0].len() == 1 && parts[0].bytes().all(|b| b.is_ascii_uppercase())));
-    let rest_ok = parts[1..].iter().all(|p| !p.is_empty() && p.len() <= 3 && p.bytes().all(|b| b.is_ascii_digit()));
+            || (parts.len() > 1
+                && parts[0].len() == 1
+                && parts[0].bytes().all(|b| b.is_ascii_uppercase())));
+    let rest_ok = parts[1..]
+        .iter()
+        .all(|p| !p.is_empty() && p.len() <= 3 && p.bytes().all(|b| b.is_ascii_digit()));
     (first_ok && rest_ok && !parts[0].is_empty()).then_some(parts.len() as u8)
 }
 
@@ -144,7 +185,10 @@ mod tests {
 
     #[test]
     fn section_numbers() {
-        assert_eq!(section_depth("7.6.3 Standard Security Handler", false), Some(3));
+        assert_eq!(
+            section_depth("7.6.3 Standard Security Handler", false),
+            Some(3)
+        );
         assert_eq!(section_depth("2 Conformance", false), Some(1));
         assert_eq!(section_depth("4. Results", false), Some(1));
         assert_eq!(section_depth("A.2 Details", false), Some(2));

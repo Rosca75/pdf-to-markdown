@@ -31,3 +31,10 @@ Before building the engine, I checked whether `pdf_oxide` can provide the text s
 5. **Span bbox convention.** The `Rect` doc comment says "top-left corner", but the values are PDF user space with `y` at the bottom of the span (y up). The engine converts to a top-down frame in one place (`extract.rs`).
 6. **Compile time.** About 450k lines of Rust. A clean release build takes about 15 minutes on the 2-core development laptop. The workspace builds pdf_oxide at `opt-level = 2` in dev and test profiles, so the corpus tests run at realistic speed.
 7. **No OCR in default features.** This is out of scope anyway. Image-only pages yield no spans, and the engine reports `no_text_layer`.
+8. **Positioned words are sometimes joined.** When a producer places a word with a positioning offset instead of a space glyph, `extract_spans` can return a single span with no space. For example, the ISO 32000 spec yields `1Scope` for section "1 Scope". The engine cannot recover the gap: the span's per-glyph advances describe glyph widths, not the positioning offsets. This is an upstream limitation.
+9. **Hidden per-page cost.** `extract_spans` deep-copies every page's spans into a bounded 8-page cache that a single-pass converter never reads. The public API that bypasses the cache (`extract_spans_with_config`) also skips pdf_oxide's span post-processing, so the engine accepts the cost (see `docs/performance.md`).
+10. **Allocation-heavy parsing.** With the platform allocator, multi-threaded extraction barely scaled on Windows. mimalloc gave a 1.6× single-thread gain and made parallel extraction effective.
+
+## Validation on a real document
+
+The 756-page ISO 32000-1 specification (22.5 MB, embedded fonts, about 600 tables) converts without errors. Section structure is preserved (`## 7 Syntax` → `### 7.6 Encryption` → `#### 7.6.3 …`), 619 tables render as GFM, and emphasis and links are kept. Converting this document also exposed two engine bugs that the synthetic corpus had not: unbounded XY-cut recursion on touching boxes, and heading levels collapsing when every heading has the same size. Both were fixed at the root and are covered by regression tests.

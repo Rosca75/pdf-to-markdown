@@ -15,6 +15,7 @@ name = "pdf2md-cli"
 path = "src/bin/pdf2md-cli.rs"
 
 [dependencies]
+mimalloc.workspace = true
 pdf_oxide.workspace = true
 # Only present to pin a compatible version; see workspace Cargo.toml.
 office_oxide.workspace = true
@@ -27,3 +28,8 @@ unicode-normalization.workspace = true
 pdf-fixtures = { path = "../pdf-fixtures" }
 serde_json.workspace = true
 toml.workspace = true
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "convert"
+harness = false

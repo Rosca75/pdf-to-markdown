@@ -15,7 +15,10 @@ pub struct DocStats {
 
 impl Default for DocStats {
     fn default() -> Self {
-        Self { body_size: 10.0, pitch_ratio: 1.2 }
+        Self {
+            body_size: 10.0,
+            pitch_ratio: 1.2,
+        }
     }
 }
 
@@ -24,7 +27,11 @@ impl DocStats {
     pub fn from_lines<'a>(lines: impl Iterator<Item = &'a Line> + Clone) -> Self {
         let mut buckets: std::collections::HashMap<i32, usize> = std::collections::HashMap::new();
         for l in lines.clone() {
-            let n: usize = l.spans.iter().map(|s| s.text.chars().filter(|c| !c.is_whitespace()).count()).sum();
+            let n: usize = l
+                .spans
+                .iter()
+                .map(|s| s.text.chars().filter(|c| !c.is_whitespace()).count())
+                .sum();
             *buckets.entry((l.size * 2.0).round() as i32).or_default() += n;
         }
         let Some((&key, _)) = buckets.iter().max_by_key(|(k, c)| (**c, **k)) else {
@@ -37,8 +44,12 @@ impl DocStats {
         let mut prev: Option<&Line> = None;
         for l in lines {
             if let Some(p) = prev {
-                let same_size = (p.size - body_size).abs() < 0.3 && (l.size - body_size).abs() < 0.3;
-                if same_size && l.bbox.h_overlap(&p.bbox) > 0.0 && l.bbox.y0 >= p.bbox.y1 - 0.5 * body_size {
+                let same_size =
+                    (p.size - body_size).abs() < 0.3 && (l.size - body_size).abs() < 0.3;
+                if same_size
+                    && l.bbox.h_overlap(&p.bbox) > 0.0
+                    && l.bbox.y0 >= p.bbox.y1 - 0.5 * body_size
+                {
                     let r = (l.bbox.y1 - p.bbox.y1) / body_size;
                     if (0.95..=2.5).contains(&r) {
                         ratios.push(r);
@@ -48,7 +59,10 @@ impl DocStats {
             prev = Some(l);
         }
         let pitch_ratio = line_pitch(ratios).unwrap_or(1.2);
-        Self { body_size, pitch_ratio }
+        Self {
+            body_size,
+            pitch_ratio,
+        }
     }
 
     pub fn pitch_for(&self, size: f32) -> f32 {

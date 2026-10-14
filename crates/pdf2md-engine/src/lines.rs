@@ -66,7 +66,12 @@ impl Line {
 
 /// Build line fragments from a page's spans.
 pub fn build(mut spans: Vec<Span>) -> Vec<Line> {
-    spans.sort_by(|a, b| a.bbox.y0.total_cmp(&b.bbox.y0).then(a.bbox.x0.total_cmp(&b.bbox.x0)));
+    spans.sort_by(|a, b| {
+        a.bbox
+            .y0
+            .total_cmp(&b.bbox.y0)
+            .then(a.bbox.x0.total_cmp(&b.bbox.x0))
+    });
 
     // Rows: a span joins the open row it overlaps most vertically.
     let mut rows: Vec<(BBox, Vec<Span>)> = Vec::new();
@@ -103,7 +108,12 @@ pub fn build(mut spans: Vec<Span>) -> Vec<Line> {
         dedupe_overprint(&mut row);
         split_row(row, row_idx, &mut lines);
     }
-    lines.sort_by(|a, b| a.bbox.y0.total_cmp(&b.bbox.y0).then(a.bbox.x0.total_cmp(&b.bbox.x0)));
+    lines.sort_by(|a, b| {
+        a.bbox
+            .y0
+            .total_cmp(&b.bbox.y0)
+            .then(a.bbox.x0.total_cmp(&b.bbox.x0))
+    });
     lines
 }
 
@@ -131,7 +141,11 @@ fn split_row(row: Vec<Span>, row_idx: usize, out: &mut Vec<Line>) {
             let em = prev.font_size.max(span.font_size).max(1.0);
             let gap = span.bbox.x0 - prev.bbox.x1;
             let lone_marker = current.len() == 1 && is_marker_only(&current[0].text);
-            let limit = if lone_marker { MARKER_GAP_EM } else { FRAGMENT_GAP_EM } * em;
+            let limit = if lone_marker {
+                MARKER_GAP_EM
+            } else {
+                FRAGMENT_GAP_EM
+            } * em;
             if gap > limit {
                 out.push(finish(std::mem::take(&mut current), row_idx));
             } else if gap > SPACE_GAP_EM * em
@@ -177,9 +191,17 @@ fn finish(mut spans: Vec<Span>, row: usize) -> Line {
         let lead = first.text.len() - first.text.trim_start().len();
         first.text.drain(..lead);
     }
-    let bbox = spans.iter().skip(1).fold(spans[0].bbox, |b, s| b.union(&s.bbox));
+    let bbox = spans
+        .iter()
+        .skip(1)
+        .fold(spans[0].bbox, |b, s| b.union(&s.bbox));
     let size = dominant_size(&spans);
-    Line { spans, bbox, size, row }
+    Line {
+        spans,
+        bbox,
+        size,
+        row,
+    }
 }
 
 /// Character-weighted most common font size (0.5 pt buckets).
@@ -193,7 +215,11 @@ pub fn dominant_size(spans: &[Span]) -> f32 {
             None => buckets.push((key, n)),
         }
     }
-    buckets.iter().max_by_key(|(k, c)| (*c, *k)).map(|(k, _)| *k as f32 / 2.0).unwrap_or(10.0)
+    buckets
+        .iter()
+        .max_by_key(|(k, c)| (*c, *k))
+        .map(|(k, _)| *k as f32 / 2.0)
+        .unwrap_or(10.0)
 }
 
 #[cfg(test)]
@@ -204,12 +230,21 @@ pub(crate) mod tests {
     pub fn sp(text: &str, x0: f32, y0: f32, size: f32) -> Span {
         // Rough Helvetica-ish advance: half an em per character.
         let w = text.chars().count() as f32 * size * 0.5;
-        Span { text: text.into(), bbox: BBox::new(x0, y0, x0 + w, y0 + size), font_size: size, style: Style::default(), link: None }
+        Span {
+            text: text.into(),
+            bbox: BBox::new(x0, y0, x0 + w, y0 + size),
+            font_size: size,
+            style: Style::default(),
+            link: None,
+        }
     }
 
     #[test]
     fn spans_on_one_baseline_form_one_line_with_spaces() {
-        let lines = build(vec![sp("world", 40.0, 100.0, 10.0), sp("Hello", 10.0, 100.0, 10.0)]);
+        let lines = build(vec![
+            sp("world", 40.0, 100.0, 10.0),
+            sp("Hello", 10.0, 100.0, 10.0),
+        ]);
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].text(), "Hello world");
     }
@@ -217,41 +252,59 @@ pub(crate) mod tests {
     #[test]
     fn adjacent_spans_without_gap_join_without_space() {
         // "Hel" ends at 25, "lo" starts at 25.
-        let lines = build(vec![sp("Hel", 10.0, 100.0, 10.0), sp("lo", 25.0, 100.0, 10.0)]);
+        let lines = build(vec![
+            sp("Hel", 10.0, 100.0, 10.0),
+            sp("lo", 25.0, 100.0, 10.0),
+        ]);
         assert_eq!(lines[0].text(), "Hello");
     }
 
     #[test]
     fn wide_gap_splits_fragments() {
-        let lines = build(vec![sp("Left column", 72.0, 100.0, 10.0), sp("Right column", 320.0, 100.0, 10.0)]);
+        let lines = build(vec![
+            sp("Left column", 72.0, 100.0, 10.0),
+            sp("Right column", 320.0, 100.0, 10.0),
+        ]);
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].row, lines[1].row);
     }
 
     #[test]
     fn lone_bullet_joins_its_text() {
-        let lines = build(vec![sp("•", 72.0, 100.0, 10.0), sp("Item text", 95.0, 100.0, 10.0)]);
+        let lines = build(vec![
+            sp("•", 72.0, 100.0, 10.0),
+            sp("Item text", 95.0, 100.0, 10.0),
+        ]);
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].text(), "• Item text");
     }
 
     #[test]
     fn section_number_joins_its_title() {
-        let lines = build(vec![sp("7.6.3", 36.8, 100.0, 10.0), sp("Standard Security Handler", 79.4, 100.0, 10.0)]);
+        let lines = build(vec![
+            sp("7.6.3", 36.8, 100.0, 10.0),
+            sp("Standard Security Handler", 79.4, 100.0, 10.0),
+        ]);
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].text(), "7.6.3 Standard Security Handler");
     }
 
     #[test]
     fn separate_baselines_separate_lines() {
-        let lines = build(vec![sp("one", 10.0, 100.0, 10.0), sp("two", 10.0, 112.0, 10.0)]);
+        let lines = build(vec![
+            sp("one", 10.0, 100.0, 10.0),
+            sp("two", 10.0, 112.0, 10.0),
+        ]);
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].text(), "one");
     }
 
     #[test]
     fn overprinted_text_deduplicated() {
-        let lines = build(vec![sp("Bold", 10.0, 100.0, 10.0), sp("Bold", 10.3, 100.2, 10.0)]);
+        let lines = build(vec![
+            sp("Bold", 10.0, 100.0, 10.0),
+            sp("Bold", 10.3, 100.2, 10.0),
+        ]);
         assert_eq!(lines[0].text(), "Bold");
     }
 
@@ -265,7 +318,10 @@ pub(crate) mod tests {
 
     #[test]
     fn dominant_size_weighted_by_chars() {
-        let spans = vec![sp("a", 0.0, 0.0, 20.0), sp("many characters here", 0.0, 0.0, 10.0)];
+        let spans = vec![
+            sp("a", 0.0, 0.0, 20.0),
+            sp("many characters here", 0.0, 0.0, 10.0),
+        ];
         assert_eq!(dominant_size(&spans), 10.0);
     }
 }

@@ -52,19 +52,35 @@ fn corpus_expectations() {
             continue;
         }
         checked += 1;
-        let opts = Options { password: case.password.clone(), threads: None };
+        let opts = Options {
+            password: case.password.clone(),
+            threads: None,
+        };
         let label = format!("{} (pw={:?})", case.file, case.password);
-        let result = convert_path(&corpus.join(&case.file), &opts, &|_| {}, &CancelToken::new());
+        let result = convert_path(
+            &corpus.join(&case.file),
+            &opts,
+            &|_| {},
+            &CancelToken::new(),
+        );
         match (&case.expect_error, result) {
-            (Some(code), Ok(_)) => failures.push(format!("{label}: expected error `{code}`, got success")),
-            (Some(code), Err(e)) if e.code() != code => {
-                failures.push(format!("{label}: expected error `{code}`, got `{}` ({e})", e.code()))
+            (Some(code), Ok(_)) => {
+                failures.push(format!("{label}: expected error `{code}`, got success"))
             }
+            (Some(code), Err(e)) if e.code() != code => failures.push(format!(
+                "{label}: expected error `{code}`, got `{}` ({e})",
+                e.code()
+            )),
             (Some(_), Err(_)) => {}
-            (None, Err(e)) => failures.push(format!("{label}: unexpected error `{}`: {e}", e.code())),
+            (None, Err(e)) => {
+                failures.push(format!("{label}: unexpected error `{}`: {e}", e.code()))
+            }
             (None, Ok(conv)) => {
                 let suffix = if case.password.is_some() { ".pw" } else { "" };
-                let _ = std::fs::write(out_dir.join(format!("{}{suffix}.md", case.file)), &conv.markdown);
+                let _ = std::fs::write(
+                    out_dir.join(format!("{}{suffix}.md", case.file)),
+                    &conv.markdown,
+                );
                 let md = &conv.markdown;
                 for s in &case.must_contain {
                     if !md.contains(s.as_str()) {
@@ -91,7 +107,12 @@ fn corpus_expectations() {
         let _ = &case.about;
     }
     assert!(checked > 0, "no corpus case selected");
-    assert!(failures.is_empty(), "{} corpus failure(s):\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} corpus failure(s):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }
 
 #[test]
@@ -100,7 +121,9 @@ fn every_corpus_pdf_converts_without_panic() {
     for entry in std::fs::read_dir(&corpus).expect("corpus dir") {
         let path = entry.expect("entry").path();
         if path.extension().is_some_and(|e| e == "pdf") {
-            let r = std::panic::catch_unwind(|| convert_path(&path, &Options::default(), &|_| {}, &CancelToken::new()));
+            let r = std::panic::catch_unwind(|| {
+                convert_path(&path, &Options::default(), &|_| {}, &CancelToken::new())
+            });
             assert!(r.is_ok(), "panic converting {}", path.display());
         }
     }

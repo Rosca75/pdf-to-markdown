@@ -22,7 +22,12 @@ pub fn is_heading_candidate(lines: &[Line], stats: &DocStats) -> bool {
     if chars > MAX_HEADING_CHARS || !text.chars().any(char::is_alphabetic) {
         return false;
     }
-    let size = crate::lines::dominant_size(&lines.iter().flat_map(|l| l.spans.iter().cloned()).collect::<Vec<_>>());
+    let size = crate::lines::dominant_size(
+        &lines
+            .iter()
+            .flat_map(|l| l.spans.iter().cloned())
+            .collect::<Vec<_>>(),
+    );
     if size >= stats.body_size * HEADING_SIZE_RATIO {
         return true;
     }
@@ -58,7 +63,10 @@ pub fn classify(raw: Vec<RawBlock>, stats: &DocStats) -> Vec<Block> {
                 Kind::Code
             } else if is_heading_candidate(lines, stats) {
                 let size = lines.iter().map(|l| l.size).fold(0.0f32, f32::max);
-                Kind::Heading(HeadingKey { half_points: (size * 2.0).round() as i32, bold: lines.iter().all(Line::all_bold) })
+                Kind::Heading(HeadingKey {
+                    half_points: (size * 2.0).round() as i32,
+                    bold: lines.iter().all(Line::all_bold),
+                })
             } else if markers::parse(&lines[0].text()).is_some() {
                 Kind::List
             } else {
@@ -94,9 +102,15 @@ pub fn classify(raw: Vec<RawBlock>, stats: &DocStats) -> Vec<Block> {
                 let level = levels.level(key, markers::section_depth(&joined_text(&lines), false));
                 let mut inlines = join_lines(&lines);
                 for i in &mut inlines {
-                    i.style = Style { mono: i.style.mono, ..Style::default() };
+                    i.style = Style {
+                        mono: i.style.mono,
+                        ..Style::default()
+                    };
                 }
-                out.push(Block::Heading { level: level.min(6), inlines: trim(inlines) });
+                out.push(Block::Heading {
+                    level: level.min(6),
+                    inlines: trim(inlines),
+                });
             }
             (RawKind::Text(lines), Some(Kind::List)) => {
                 let first = lines[0].text();
@@ -117,9 +131,15 @@ pub fn classify(raw: Vec<RawBlock>, stats: &DocStats) -> Vec<Block> {
                     }
                 };
                 let inlines = strip_prefix(join_lines(&lines), parsed.len);
-                out.push(Block::ListItem { depth: depth.min(8) as u8, marker: parsed.marker, inlines: trim(inlines) });
+                out.push(Block::ListItem {
+                    depth: depth.min(8) as u8,
+                    marker: parsed.marker,
+                    inlines: trim(inlines),
+                });
             }
-            (RawKind::Text(lines), _) => out.push(Block::Paragraph { inlines: trim(join_lines(&lines)) }),
+            (RawKind::Text(lines), _) => out.push(Block::Paragraph {
+                inlines: trim(join_lines(&lines)),
+            }),
         }
     }
     out
@@ -154,9 +174,19 @@ impl HeadingLevels {
         ranked.dedup();
         let numbered_count = headings.iter().filter(|h| h.1.is_some()).count();
         let numbered = (numbered_count >= 2).then(|| {
-            let max_half_points = headings.iter().filter(|h| h.1.is_some()).map(|h| h.0.half_points).max().unwrap_or(0);
-            let offset = u8::from(headings.iter().any(|h| h.1.is_none() && h.0.half_points > max_half_points));
-            let mut tally: std::collections::HashMap<(HeadingKey, u8), usize> = std::collections::HashMap::new();
+            let max_half_points = headings
+                .iter()
+                .filter(|h| h.1.is_some())
+                .map(|h| h.0.half_points)
+                .max()
+                .unwrap_or(0);
+            let offset = u8::from(
+                headings
+                    .iter()
+                    .any(|h| h.1.is_none() && h.0.half_points > max_half_points),
+            );
+            let mut tally: std::collections::HashMap<(HeadingKey, u8), usize> =
+                std::collections::HashMap::new();
             for (k, d) in headings {
                 if let Some(d) = d {
                     *tally.entry((*k, *d)).or_default() += 1;
@@ -175,7 +205,11 @@ impl HeadingLevels {
                     .unwrap_or(1);
                 style_depth.push((k, best));
             }
-            Numbered { max_half_points, offset, style_depth }
+            Numbered {
+                max_half_points,
+                offset,
+                style_depth,
+            }
         });
         Self { ranked, numbered }
     }
@@ -186,7 +220,12 @@ impl HeadingLevels {
                 Some(d) => n.offset + d,
                 None if key.half_points > n.max_half_points => 1,
                 None => {
-                    let d = n.style_depth.iter().find(|(k, _)| *k == key).map(|(_, d)| *d).unwrap_or(1);
+                    let d = n
+                        .style_depth
+                        .iter()
+                        .find(|(k, _)| *k == key)
+                        .map(|(_, d)| *d)
+                        .unwrap_or(1);
                     n.offset + d
                 }
             },
@@ -230,7 +269,11 @@ pub fn join_lines(lines: &[Line]) -> Vec<Inline> {
             }
         }
         for s in &line.spans {
-            out.push(Inline { text: s.text.clone(), style: s.style, link: s.link.clone() });
+            out.push(Inline {
+                text: s.text.clone(),
+                style: s.style,
+                link: s.link.clone(),
+            });
         }
     }
     out
@@ -248,7 +291,10 @@ fn strip_prefix(mut inlines: Vec<Inline>, mut n: usize) -> Vec<Inline> {
             break;
         }
         let take = n.min(i.text.len());
-        let take = (0..=take).rev().find(|&k| i.text.is_char_boundary(k)).unwrap_or(0);
+        let take = (0..=take)
+            .rev()
+            .find(|&k| i.text.is_char_boundary(k))
+            .unwrap_or(0);
         i.text.drain(..take);
         n -= take;
         if take == 0 {
@@ -284,11 +330,18 @@ mod tests {
     }
 
     fn raw(spans: Vec<Span>) -> RawBlock {
-        RawBlock { kind: RawKind::Text(build(spans)), soft_start: false, page: 0 }
+        RawBlock {
+            kind: RawKind::Text(build(spans)),
+            soft_start: false,
+            page: 0,
+        }
     }
 
     fn stats() -> DocStats {
-        DocStats { body_size: 10.0, pitch_ratio: 1.2 }
+        DocStats {
+            body_size: 10.0,
+            pitch_ratio: 1.2,
+        }
     }
 
     #[test]
@@ -303,7 +356,10 @@ mod tests {
             ],
             &stats(),
         );
-        assert_eq!(render(&blocks), "# Title\n\n## Section\n\n### Subsection\n\nBody text here.\n\n## Another section\n");
+        assert_eq!(
+            render(&blocks),
+            "# Title\n\n## Section\n\n### Subsection\n\nBody text here.\n\n## Another section\n"
+        );
     }
 
     #[test]
@@ -314,7 +370,12 @@ mod tests {
                 raw(vec![bold(sp("Foreword", 72.0, 80.0, 10.0))]),
                 raw(vec![bold(sp("7 Syntax", 72.0, 100.0, 10.0))]),
                 raw(vec![bold(sp("7.6 Encryption", 72.0, 130.0, 10.0))]),
-                raw(vec![bold(sp("7.6.3 Standard Security Handler", 72.0, 160.0, 10.0))]),
+                raw(vec![bold(sp(
+                    "7.6.3 Standard Security Handler",
+                    72.0,
+                    160.0,
+                    10.0,
+                ))]),
                 raw(vec![sp("Body text here.", 72.0, 190.0, 10.0)]),
                 raw(vec![bold(sp("8 Graphics", 72.0, 220.0, 10.0))]),
             ],
@@ -336,7 +397,10 @@ mod tests {
             ])],
             &stats(),
         );
-        assert_eq!(render(&blocks), "the international market and Franco-German trade\n");
+        assert_eq!(
+            render(&blocks),
+            "the international market and Franco-German trade\n"
+        );
     }
 
     #[test]
@@ -355,7 +419,15 @@ mod tests {
 
     #[test]
     fn bold_sentence_is_not_a_heading() {
-        let blocks = classify(vec![raw(vec![bold(sp("Note: this is important.", 72.0, 100.0, 10.0))])], &stats());
+        let blocks = classify(
+            vec![raw(vec![bold(sp(
+                "Note: this is important.",
+                72.0,
+                100.0,
+                10.0,
+            ))])],
+            &stats(),
+        );
         assert!(matches!(blocks[0], Block::Paragraph { .. }));
     }
 
@@ -366,6 +438,11 @@ mod tests {
         a.style.mono = true;
         b.style.mono = true;
         let blocks = classify(vec![raw(vec![a, b])], &stats());
-        assert_eq!(blocks[0], Block::Code { lines: vec!["fn main() {".into(), "    println!();".into()] });
+        assert_eq!(
+            blocks[0],
+            Block::Code {
+                lines: vec!["fn main() {".into(), "    println!();".into()]
+            }
+        );
     }
 }

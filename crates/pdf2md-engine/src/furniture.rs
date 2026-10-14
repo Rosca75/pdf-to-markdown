@@ -77,7 +77,9 @@ pub fn detect(pages: &[(f32, Vec<LineProbe<'_>>)]) -> Vec<Vec<bool>> {
                 .iter()
                 .zip(page_keys)
                 .map(|(l, k)| match k {
-                    Some(k) => is_page_number(l.text) || counts.get(&k).copied().unwrap_or(0) >= threshold,
+                    Some(k) => {
+                        is_page_number(l.text) || counts.get(&k).copied().unwrap_or(0) >= threshold
+                    }
                     None => false,
                 })
                 .collect()
@@ -120,7 +122,10 @@ pub fn is_page_number(text: &str) -> bool {
     let k = key.trim_matches(|c: char| c == '-' || c == '–' || c == '—' || c == ' ' || c == '|');
     let k = k.strip_prefix("page").map(str::trim_start).unwrap_or(k);
     let k = k.strip_prefix("p.").map(str::trim_start).unwrap_or(k);
-    if matches!(k, "#" | "# of #" | "# / #" | "#/#" | "# sur #" | "# von #" | "# de #") {
+    if matches!(
+        k,
+        "#" | "# of #" | "# / #" | "#/#" | "# sur #" | "# von #" | "# de #"
+    ) {
         return true;
     }
     is_roman(k)
@@ -136,8 +141,14 @@ fn is_roman(s: &str) -> bool {
         return false;
     }
     let rest = strip(s, &["ccc", "cc", "c"]);
-    let rest = strip(rest, &["xc", "xl", "lxxx", "lxx", "lx", "l", "xxx", "xx", "x"]);
-    let rest = strip(rest, &["ix", "iv", "viii", "vii", "vi", "v", "iii", "ii", "i"]);
+    let rest = strip(
+        rest,
+        &["xc", "xl", "lxxx", "lxx", "lx", "l", "xxx", "xx", "x"],
+    );
+    let rest = strip(
+        rest,
+        &["ix", "iv", "viii", "vii", "vi", "v", "iii", "ii", "i"],
+    );
     rest.is_empty()
 }
 
@@ -146,7 +157,11 @@ mod tests {
     use super::*;
 
     fn probe(text: &str, y0: f32) -> LineProbe<'_> {
-        LineProbe { text, y0, y1: y0 + 10.0 }
+        LineProbe {
+            text,
+            y0,
+            y1: y0 + 10.0,
+        }
     }
 
     #[test]
@@ -157,10 +172,25 @@ mod tests {
 
     #[test]
     fn page_numbers_recognised() {
-        for t in ["7", "- 7 -", "Page 7", "page 7 of 12", "7 / 12", "vii", "— 12 —"] {
+        for t in [
+            "7",
+            "- 7 -",
+            "Page 7",
+            "page 7 of 12",
+            "7 / 12",
+            "vii",
+            "— 12 —",
+        ] {
             assert!(is_page_number(t), "{t}");
         }
-        for t in ["Introduction", "7 apples", "Chapter 7", "civil", "vivid", "mix"] {
+        for t in [
+            "Introduction",
+            "7 apples",
+            "Chapter 7",
+            "civil",
+            "vivid",
+            "mix",
+        ] {
             assert!(!is_page_number(t), "{t}");
         }
     }
@@ -189,7 +219,10 @@ mod tests {
     #[test]
     fn single_occurrence_in_band_is_content() {
         let pages = vec![
-            (792.0, vec![probe("Big Title On First Page", 40.0), probe("body", 300.0)]),
+            (
+                792.0,
+                vec![probe("Big Title On First Page", 40.0), probe("body", 300.0)],
+            ),
             (792.0, vec![probe("other body", 300.0)]),
             (792.0, vec![probe("more body", 300.0)]),
         ];
@@ -199,8 +232,9 @@ mod tests {
 
     #[test]
     fn body_lines_never_removed_even_if_repeated() {
-        let pages: Vec<(f32, Vec<LineProbe>)> =
-            (0..3).map(|_| (792.0, vec![probe("Repeated body sentence", 400.0)])).collect();
+        let pages: Vec<(f32, Vec<LineProbe>)> = (0..3)
+            .map(|_| (792.0, vec![probe("Repeated body sentence", 400.0)]))
+            .collect();
         assert!(detect(&pages).iter().all(|f| f == &vec![false]));
     }
 

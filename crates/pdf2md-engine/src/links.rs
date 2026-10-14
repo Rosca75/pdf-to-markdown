@@ -19,16 +19,27 @@ pub fn apply(spans: &mut Vec<Span>, words: &[Option<Vec<(f32, f32)>>], links: &[
     }
     let mut out = Vec::with_capacity(spans.len() + links.len() * 2);
     for (k, span) in spans.drain(..).enumerate() {
-        let hits: Vec<&Link> = links.iter().filter(|l| covers_vertically(&l.bbox, &span.bbox)).collect();
+        let hits: Vec<&Link> = links
+            .iter()
+            .filter(|l| covers_vertically(&l.bbox, &span.bbox))
+            .collect();
         if hits.is_empty() || !hits.iter().any(|l| l.bbox.h_overlap(&span.bbox) > 0.0) {
             out.push(span);
             continue;
         }
         if let Some(l) = hits.iter().find(|l| contains_h(&l.bbox, &span.bbox)) {
-            out.push(Span { link: Some(l.uri.clone()), ..span });
+            out.push(Span {
+                link: Some(l.uri.clone()),
+                ..span
+            });
             continue;
         }
-        split_by_words(span, words.get(k).and_then(Option::as_deref), &hits, &mut out);
+        split_by_words(
+            span,
+            words.get(k).and_then(Option::as_deref),
+            &hits,
+            &mut out,
+        );
     }
     *spans = out;
 }
@@ -60,14 +71,26 @@ fn split_by_words(span: Span, ranges: Option<&[(f32, f32)]>, hits: &[&Link], out
             Some(r) => (r[wi].0 + r[wi].1) / 2.0,
             None => x0 + core as f32 * per_char / 2.0,
         };
-        let link = hits.iter().find(|l| l.bbox.x0 <= centre && centre <= l.bbox.x1).map(|l| l.uri.clone());
-        let bbox = BBox { x0, x1: x0 + n as f32 * per_char, ..span.bbox };
+        let link = hits
+            .iter()
+            .find(|l| l.bbox.x0 <= centre && centre <= l.bbox.x1)
+            .map(|l| l.uri.clone());
+        let bbox = BBox {
+            x0,
+            x1: x0 + n as f32 * per_char,
+            ..span.bbox
+        };
         match pieces.last_mut() {
             Some(last) if last.link == link => {
                 last.text.push_str(word);
                 last.bbox.x1 = bbox.x1;
             }
-            _ => pieces.push(Span { text: word.to_owned(), bbox, link, ..span.clone() }),
+            _ => pieces.push(Span {
+                text: word.to_owned(),
+                bbox,
+                link,
+                ..span.clone()
+            }),
         }
         char_pos += n;
     }
@@ -121,7 +144,10 @@ mod tests {
     }
 
     fn link(x0: f32, x1: f32) -> Link {
-        Link { bbox: BBox::new(x0, 98.0, x1, 112.0), uri: Arc::from("https://x.test") }
+        Link {
+            bbox: BBox::new(x0, 98.0, x1, 112.0),
+            uri: Arc::from("https://x.test"),
+        }
     }
 
     #[test]
@@ -137,8 +163,18 @@ mod tests {
         // 30 chars over 300pt: 10pt per char. "Visit " = 0..60, "example.com " = 60..180.
         let mut spans = vec![span("Visit example.com for details.", 0.0, 300.0)];
         apply(&mut spans, &[], &[link(60.0, 170.0)]);
-        let texts: Vec<(&str, bool)> = spans.iter().map(|s| (s.text.as_str(), s.link.is_some())).collect();
-        assert_eq!(texts, vec![("Visit ", false), ("example.com", true), (" for details.", false)]);
+        let texts: Vec<(&str, bool)> = spans
+            .iter()
+            .map(|s| (s.text.as_str(), s.link.is_some()))
+            .collect();
+        assert_eq!(
+            texts,
+            vec![
+                ("Visit ", false),
+                ("example.com", true),
+                (" for details.", false)
+            ]
+        );
     }
 
     #[test]
@@ -146,16 +182,34 @@ mod tests {
         // The proportional estimate would put "for" inside the link; the
         // real glyph ranges show it starts after the link ends.
         let mut spans = vec![span("Read documentation for details.", 0.0, 300.0)];
-        let ranges = vec![Some(vec![(0.0, 40.0), (45.0, 160.0), (165.0, 185.0), (190.0, 300.0)])];
+        let ranges = vec![Some(vec![
+            (0.0, 40.0),
+            (45.0, 160.0),
+            (165.0, 185.0),
+            (190.0, 300.0),
+        ])];
         apply(&mut spans, &ranges, &[link(44.0, 161.0)]);
-        let texts: Vec<(&str, bool)> = spans.iter().map(|s| (s.text.as_str(), s.link.is_some())).collect();
-        assert_eq!(texts, vec![("Read ", false), ("documentation", true), (" for details.", false)]);
+        let texts: Vec<(&str, bool)> = spans
+            .iter()
+            .map(|s| (s.text.as_str(), s.link.is_some()))
+            .collect();
+        assert_eq!(
+            texts,
+            vec![
+                ("Read ", false),
+                ("documentation", true),
+                (" for details.", false)
+            ]
+        );
     }
 
     #[test]
     fn link_on_other_line_ignored() {
         let mut spans = vec![span("text", 0.0, 40.0)];
-        let far = Link { bbox: BBox::new(0.0, 300.0, 40.0, 310.0), uri: Arc::from("u") };
+        let far = Link {
+            bbox: BBox::new(0.0, 300.0, 40.0, 310.0),
+            uri: Arc::from("u"),
+        };
         apply(&mut spans, &[], &[far]);
         assert!(spans[0].link.is_none());
     }

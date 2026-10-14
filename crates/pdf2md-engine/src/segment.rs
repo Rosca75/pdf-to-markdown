@@ -64,7 +64,11 @@ pub fn segment(items: Vec<(Item, f32)>, page: usize, stats: &DocStats) -> Vec<Ra
         match item {
             Item::Table(t) => {
                 flush(&mut out, &mut cur, cur_soft, page);
-                out.push(RawBlock { kind: RawKind::Table(t), soft_start: false, page });
+                out.push(RawBlock {
+                    kind: RawKind::Table(t),
+                    soft_start: false,
+                    page,
+                });
                 cur_soft = false;
             }
             Item::Line(line) => {
@@ -91,7 +95,11 @@ pub fn segment(items: Vec<(Item, f32)>, page: usize, stats: &DocStats) -> Vec<Ra
 
 fn flush(out: &mut Vec<RawBlock>, cur: &mut Vec<Line>, soft: bool, page: usize) {
     if !cur.is_empty() {
-        out.push(RawBlock { kind: RawKind::Text(std::mem::take(cur)), soft_start: soft, page });
+        out.push(RawBlock {
+            kind: RawKind::Text(std::mem::take(cur)),
+            soft_start: soft,
+            page,
+        });
     }
 }
 
@@ -136,16 +144,22 @@ fn boundary(block: &[Line], p: &Line, c: &Line, col_right: f32, stats: &DocStats
     }
     let first = &block[0];
     let first_text = first.text();
-    if let Some(m) = markers::parse(&first_text) {
+    if markers::parse(&first_text).is_some() {
         // List item: continuation lines hang to the right of the marker.
-        let _ = m;
-        return if c.bbox.x0 > first.bbox.x0 + 0.3 * em { Boundary::Same } else { Boundary::Paragraph };
+        return if c.bbox.x0 > first.bbox.x0 + 0.3 * em {
+            Boundary::Same
+        } else {
+            Boundary::Paragraph
+        };
     }
     let left = block.iter().map(|l| l.bbox.x0).fold(f32::MAX, f32::min);
-    if block.len() >= 1 && c.bbox.x0 > left + 1.0 * em && c.bbox.x0 > p.bbox.x0 + 1.0 * em {
+    if c.bbox.x0 > left + 1.0 * em && c.bbox.x0 > p.bbox.x0 + 1.0 * em {
         return Boundary::Paragraph; // first-line indent of a new paragraph
     }
-    let right = block.iter().map(|l| l.bbox.x1).fold(c.bbox.x1.max(col_right), f32::max);
+    let right = block
+        .iter()
+        .map(|l| l.bbox.x1)
+        .fold(c.bbox.x1.max(col_right), f32::max);
     let p_text = p.text();
     if p.bbox.x1 < right - 3.0 * em && ends_sentence(&p_text) {
         return Boundary::Paragraph; // short last line of the previous paragraph
@@ -154,7 +168,10 @@ fn boundary(block: &[Line], p: &Line, c: &Line, col_right: f32, stats: &DocStats
     // without punctuation (labels, address lines, captions) when the next
     // line starts like a new sentence.
     let width = (right - left).max(1.0);
-    let starts_new = c_text.chars().next().is_some_and(|ch| ch.is_uppercase() || ch.is_ascii_digit());
+    let starts_new = c_text
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_uppercase() || ch.is_ascii_digit());
     if starts_new && p.bbox.x1 < right - SHORT_LINE_SHARE * width && !p_text.ends_with(['-', ',']) {
         return Boundary::Paragraph;
     }
@@ -164,7 +181,9 @@ fn boundary(block: &[Line], p: &Line, c: &Line, col_right: f32, stats: &DocStats
 /// Text ends a sentence (terminal punctuation, optionally followed by a
 /// closing quote or bracket).
 pub fn ends_sentence(text: &str) -> bool {
-    let t = text.trim_end().trim_end_matches(['"', '\'', '”', '’', ')', ']', '»']);
+    let t = text
+        .trim_end()
+        .trim_end_matches(['"', '\'', '”', '’', ')', ']', '»']);
     t.ends_with(['.', '!', '?', ':', '…', ';'])
 }
 
@@ -176,14 +195,24 @@ mod tests {
     fn texts(blocks: &[RawBlock]) -> Vec<String> {
         blocks
             .iter()
-            .map(|b| b.lines().iter().map(Line::text).collect::<Vec<_>>().join(" | "))
+            .map(|b| {
+                b.lines()
+                    .iter()
+                    .map(Line::text)
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            })
             .collect()
     }
 
     fn run(spans: Vec<crate::model::Span>) -> Vec<RawBlock> {
         let lines = build(spans);
         let stats = DocStats::from_lines(lines.iter());
-        segment(lines.into_iter().map(|l| (Item::Line(l), 540.0)).collect(), 0, &stats)
+        segment(
+            lines.into_iter().map(|l| (Item::Line(l), 540.0)).collect(),
+            0,
+            &stats,
+        )
     }
 
     #[test]
@@ -204,7 +233,13 @@ mod tests {
             sp("a second line", 84.0, 112.0, 10.0),
             sp("• Second item", 72.0, 124.0, 10.0),
         ]);
-        assert_eq!(texts(&b), vec!["• First item that wraps onto | a second line", "• Second item"]);
+        assert_eq!(
+            texts(&b),
+            vec![
+                "• First item that wraps onto | a second line",
+                "• Second item"
+            ]
+        );
     }
 
     #[test]
@@ -229,8 +264,18 @@ mod tests {
     #[test]
     fn wrapped_full_lines_stay_together() {
         let b = run(vec![
-            sp("This is a long line of a paragraph that fills the column to", 72.0, 100.0, 12.0),
-            sp("Europe and beyond, continuing the same sentence.", 72.0, 114.0, 12.0),
+            sp(
+                "This is a long line of a paragraph that fills the column to",
+                72.0,
+                100.0,
+                12.0,
+            ),
+            sp(
+                "Europe and beyond, continuing the same sentence.",
+                72.0,
+                114.0,
+                12.0,
+            ),
         ]);
         assert_eq!(b.len(), 1);
     }
@@ -238,7 +283,12 @@ mod tests {
     #[test]
     fn smaller_caption_splits_from_paragraph() {
         let b = run(vec![
-            sp("The paragraph above the figure keeps its sentence together", 72.0, 100.0, 11.0),
+            sp(
+                "The paragraph above the figure keeps its sentence together",
+                72.0,
+                100.0,
+                11.0,
+            ),
             sp("Figure 1 caption", 72.0, 114.0, 10.0),
         ]);
         assert_eq!(b.len(), 2);

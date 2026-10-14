@@ -10,7 +10,11 @@ pub fn render(blocks: &[Block]) -> String {
     for block in blocks {
         let is_item = matches!(block, Block::ListItem { .. });
         if !out.is_empty() {
-            out.push_str(if is_item && prev_was_item { "\n" } else { "\n\n" });
+            out.push_str(if is_item && prev_was_item {
+                "\n"
+            } else {
+                "\n\n"
+            });
         }
         match block {
             Block::Heading { level, inlines } => {
@@ -21,7 +25,11 @@ pub fn render(blocks: &[Block]) -> String {
                 push_inlines(&mut out, inlines, Ctx::Heading);
             }
             Block::Paragraph { inlines } => push_inlines(&mut out, inlines, Ctx::Paragraph),
-            Block::ListItem { depth, marker, inlines } => {
+            Block::ListItem {
+                depth,
+                marker,
+                inlines,
+            } => {
                 // Nested content must start at the parent's content column:
                 // 2 columns under "- ", 3 under "1. " (wider numbers are rare
                 // and CommonMark tolerates up to 3 extra spaces).
@@ -140,10 +148,15 @@ fn merge(inlines: &[Inline]) -> Vec<Inline> {
             continue;
         }
         match merged.last_mut() {
-            Some(last) if last.link == inl.link && (last.style == inl.style || inl.text.trim().is_empty()) => {
+            Some(last)
+                if last.link == inl.link
+                    && (last.style == inl.style || inl.text.trim().is_empty()) =>
+            {
                 last.text.push_str(&inl.text)
             }
-            Some(last) if last.link == inl.link && last.text.trim().is_empty() && last.link.is_none() => {
+            Some(last)
+                if last.link == inl.link && last.text.trim().is_empty() && last.link.is_none() =>
+            {
                 // Leading whitespace adopts the following style.
                 let mut ws = std::mem::take(&mut last.text);
                 ws.push_str(&inl.text);
@@ -178,7 +191,11 @@ fn push_inline(out: &mut String, inl: &Inline, ctx: Ctx, _at_start: bool) {
         if core.starts_with('`') || core.ends_with('`') {
             out.push(' ');
         }
-        out.push_str(&if ctx == Ctx::TableCell { core.replace('|', "\\|") } else { core.to_owned() });
+        out.push_str(&if ctx == Ctx::TableCell {
+            core.replace('|', "\\|")
+        } else {
+            core.to_owned()
+        });
         if core.starts_with('`') || core.ends_with('`') {
             out.push(' ');
         }
@@ -253,11 +270,17 @@ fn escape_block_start(out: &mut String, start: usize) {
     };
     let needs = match first {
         '#' | '=' => true,
-        '-' | '+' => rest[1..].starts_with(' ') || rest[1..].is_empty() || rest.chars().all(|c| c == first),
+        '-' | '+' => {
+            rest[1..].starts_with(' ') || rest[1..].is_empty() || rest.chars().all(|c| c == first)
+        }
         d if d.is_ascii_digit() => {
             let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
             let after = &rest[digits..];
-            digits <= 9 && (after.starts_with(". ") || after.starts_with(") ") || after == "." || after == ")")
+            digits <= 9
+                && (after.starts_with(". ")
+                    || after.starts_with(") ")
+                    || after == "."
+                    || after == ")")
         }
         _ => false,
     };
@@ -281,7 +304,15 @@ mod tests {
         Inline::plain(s)
     }
     fn styled(s: &str, bold: bool, italic: bool) -> Inline {
-        Inline { text: s.into(), style: Style { bold, italic, mono: false }, link: None }
+        Inline {
+            text: s.into(),
+            style: Style {
+                bold,
+                italic,
+                mono: false,
+            },
+            link: None,
+        }
     }
     fn para(inlines: Vec<Inline>) -> Block {
         Block::Paragraph { inlines }
@@ -290,7 +321,10 @@ mod tests {
     #[test]
     fn heading_and_paragraph_separated_by_blank_line() {
         let md = render(&[
-            Block::Heading { level: 2, inlines: vec![plain("Market overview")] },
+            Block::Heading {
+                level: 2,
+                inlines: vec![plain("Market overview")],
+            },
             para(vec![plain("Widgets sell.")]),
         ]);
         assert_eq!(md, "## Market overview\n\nWidgets sell.\n");
@@ -312,7 +346,10 @@ mod tests {
 
     #[test]
     fn adjacent_same_style_runs_merge() {
-        let md = render(&[para(vec![styled("Hello", true, false), styled(" world", true, false)])]);
+        let md = render(&[para(vec![
+            styled("Hello", true, false),
+            styled(" world", true, false),
+        ])]);
         assert_eq!(md, "**Hello world**\n");
     }
 
@@ -320,26 +357,59 @@ mod tests {
     fn lists_are_tight_and_nested() {
         let md = render(&[
             para(vec![plain("Intro")]),
-            Block::ListItem { depth: 0, marker: Marker::Bullet, inlines: vec![plain("one")] },
-            Block::ListItem { depth: 1, marker: Marker::Bullet, inlines: vec![plain("nested")] },
-            Block::ListItem { depth: 0, marker: Marker::Ordered(3), inlines: vec![plain("three")] },
-            Block::ListItem { depth: 0, marker: Marker::OrderedParen(1), inlines: vec![plain("paren")] },
+            Block::ListItem {
+                depth: 0,
+                marker: Marker::Bullet,
+                inlines: vec![plain("one")],
+            },
+            Block::ListItem {
+                depth: 1,
+                marker: Marker::Bullet,
+                inlines: vec![plain("nested")],
+            },
+            Block::ListItem {
+                depth: 0,
+                marker: Marker::Ordered(3),
+                inlines: vec![plain("three")],
+            },
+            Block::ListItem {
+                depth: 0,
+                marker: Marker::OrderedParen(1),
+                inlines: vec![plain("paren")],
+            },
             para(vec![plain("After")]),
         ]);
-        assert_eq!(md, "Intro\n\n- one\n  - nested\n3. three\n1) paren\n\nAfter\n");
+        assert_eq!(
+            md,
+            "Intro\n\n- one\n  - nested\n3. three\n1) paren\n\nAfter\n"
+        );
     }
 
     #[test]
     fn special_characters_escaped() {
-        let md = render(&[para(vec![plain("a*b [c] `d` <e> ~f snake_case _x_ back\\slash")])]);
-        assert_eq!(md, "a\\*b \\[c\\] \\`d\\` \\<e\\> \\~f snake_case \\_x\\_ back\\\\slash\n");
+        let md = render(&[para(vec![plain(
+            "a*b [c] `d` <e> ~f snake_case _x_ back\\slash",
+        )])]);
+        assert_eq!(
+            md,
+            "a\\*b \\[c\\] \\`d\\` \\<e\\> \\~f snake_case \\_x\\_ back\\\\slash\n"
+        );
     }
 
     #[test]
     fn block_starts_escaped() {
-        assert_eq!(render(&[para(vec![plain("# not a heading")])]), "\\# not a heading\n");
-        assert_eq!(render(&[para(vec![plain("1984. That year")])]), "1984\\. That year\n");
-        assert_eq!(render(&[para(vec![plain("- not a list")])]), "\\- not a list\n");
+        assert_eq!(
+            render(&[para(vec![plain("# not a heading")])]),
+            "\\# not a heading\n"
+        );
+        assert_eq!(
+            render(&[para(vec![plain("1984. That year")])]),
+            "1984\\. That year\n"
+        );
+        assert_eq!(
+            render(&[para(vec![plain("- not a list")])]),
+            "\\- not a list\n"
+        );
         assert_eq!(render(&[para(vec![plain("---")])]), "\\---\n");
         assert_eq!(render(&[para(vec![plain("-5 degrees")])]), "-5 degrees\n");
         assert_eq!(render(&[para(vec![plain("3.5 percent")])]), "3.5 percent\n");
@@ -350,7 +420,11 @@ mod tests {
         let link = Some(Arc::<str>::from("https://example.com/a b"));
         let md = render(&[para(vec![
             plain("Visit "),
-            Inline { text: "example.com".into(), style: Style::default(), link },
+            Inline {
+                text: "example.com".into(),
+                style: Style::default(),
+                link,
+            },
             plain(" now."),
         ])]);
         assert_eq!(md, "Visit [example.com](https://example.com/a%20b) now.\n");
@@ -365,12 +439,17 @@ mod tests {
                 vec![vec![plain("short")]],
             ],
         }]);
-        assert_eq!(md, "| Name | Value |\n| --- | --- |\n| a\\|b | 1 |\n| short |  |\n");
+        assert_eq!(
+            md,
+            "| Name | Value |\n| --- | --- |\n| a\\|b | 1 |\n| short |  |\n"
+        );
     }
 
     #[test]
     fn code_block_fence_outgrows_backticks() {
-        let md = render(&[Block::Code { lines: vec!["let a = 1;".into(), "  ```inner".into()] }]);
+        let md = render(&[Block::Code {
+            lines: vec!["let a = 1;".into(), "  ```inner".into()],
+        }]);
         assert_eq!(md, "````\nlet a = 1;\n  ```inner\n````\n");
     }
 
@@ -378,7 +457,14 @@ mod tests {
     fn inline_mono_uses_code_span() {
         let md = render(&[para(vec![
             plain("Run "),
-            Inline { text: "cargo *test*".into(), style: Style { mono: true, ..Style::default() }, link: None },
+            Inline {
+                text: "cargo *test*".into(),
+                style: Style {
+                    mono: true,
+                    ..Style::default()
+                },
+                link: None,
+            },
         ])]);
         assert_eq!(md, "Run `cargo *test*`\n");
     }

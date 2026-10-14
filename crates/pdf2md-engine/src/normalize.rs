@@ -30,7 +30,10 @@ pub fn normalize(raw: &str) -> Normalized {
     let mut undecodable = 0;
     // Fast path: pure printable ASCII needs no work beyond a copy.
     if raw.bytes().all(|b| (0x20..0x7f).contains(&b)) {
-        return Normalized { text: raw.to_owned(), undecodable };
+        return Normalized {
+            text: raw.to_owned(),
+            undecodable,
+        };
     }
     let mut out = String::with_capacity(raw.len());
     for c in raw.chars() {
@@ -50,7 +53,11 @@ pub fn normalize(raw: &str) -> Normalized {
             c => out.push(c),
         }
     }
-    let text = if out.is_ascii() { out } else { out.nfc().collect() };
+    let text = if out.is_ascii() {
+        out
+    } else {
+        out.nfc().collect()
+    };
     Normalized { text, undecodable }
 }
 
@@ -80,7 +87,10 @@ mod tests {
 
     #[test]
     fn ligatures_expand() {
-        assert_eq!(n("e\u{FB03}cient \u{FB02}ow \u{FB01}sh"), "efficient flow fish");
+        assert_eq!(
+            n("e\u{FB03}cient \u{FB02}ow \u{FB01}sh"),
+            "efficient flow fish"
+        );
     }
 
     #[test]

@@ -38,8 +38,19 @@ pub fn reading_order(boxes: &[BBox], body_size: f32, frame: (f32, f32)) -> Vec<P
     out
 }
 
-fn cut(boxes: &[BBox], mut idx: Vec<usize>, em: f32, col: (f32, f32), depth: usize, out: &mut Vec<Placed>) {
-    let place = |i: usize| Placed { index: i, col_x0: col.0, col_x1: col.1 };
+fn cut(
+    boxes: &[BBox],
+    mut idx: Vec<usize>,
+    em: f32,
+    col: (f32, f32),
+    depth: usize,
+    out: &mut Vec<Placed>,
+) {
+    let place = |i: usize| Placed {
+        index: i,
+        col_x0: col.0,
+        col_x1: col.1,
+    };
     if idx.len() <= 1 {
         out.extend(idx.into_iter().map(place));
         return;
@@ -50,14 +61,20 @@ fn cut(boxes: &[BBox], mut idx: Vec<usize>, em: f32, col: (f32, f32), depth: usi
         return;
     }
     if let Some(x) = best_vertical(boxes, &mut idx, em) {
-        let (left, right): (Vec<usize>, Vec<usize>) = idx.into_iter().partition(|&i| boxes[i].x1 <= x);
+        let (left, right): (Vec<usize>, Vec<usize>) =
+            idx.into_iter().partition(|&i| boxes[i].x1 <= x);
         let right_x0 = right.iter().map(|&i| boxes[i].x0).fold(f32::MAX, f32::min);
         cut(boxes, left, em, (col.0, x), depth + 1, out);
         cut(boxes, right, em, (right_x0, col.1), depth + 1, out);
         return;
     }
     // Horizontal: sweep in y order and cut at every wide-enough gap.
-    idx.sort_by(|&a, &b| boxes[a].y0.total_cmp(&boxes[b].y0).then(boxes[a].x0.total_cmp(&boxes[b].x0)));
+    idx.sort_by(|&a, &b| {
+        boxes[a]
+            .y0
+            .total_cmp(&boxes[b].y0)
+            .then(boxes[a].x0.total_cmp(&boxes[b].x0))
+    });
     let mut gaps: Vec<(usize, f32)> = Vec::new(); // (split position in idx, gap width)
     let mut reach = boxes[idx[0]].y1;
     for (k, &i) in idx.iter().enumerate().skip(1) {
@@ -131,7 +148,10 @@ mod tests {
     }
 
     fn reading_order(boxes: &[BBox], em: f32) -> Vec<usize> {
-        super::reading_order(boxes, em, (72.0, 540.0)).into_iter().map(|p| p.index).collect()
+        super::reading_order(boxes, em, (72.0, 540.0))
+            .into_iter()
+            .map(|p| p.index)
+            .collect()
     }
 
     #[test]
@@ -170,17 +190,21 @@ mod tests {
 
     #[test]
     fn single_column_top_to_bottom() {
-        let boxes = vec![b(72.0, 130.0, 500.0, 140.0), b(72.0, 100.0, 500.0, 110.0), b(72.0, 115.0, 480.0, 125.0)];
+        let boxes = vec![
+            b(72.0, 130.0, 500.0, 140.0),
+            b(72.0, 100.0, 500.0, 110.0),
+            b(72.0, 115.0, 480.0, 125.0),
+        ];
         assert_eq!(reading_order(&boxes, 10.0), vec![1, 2, 0]);
     }
 
     #[test]
     fn two_columns_under_full_width_title() {
         let boxes = vec![
-            b(72.0, 60.0, 540.0, 80.0),   // 0 title
-            b(72.0, 100.0, 290.0, 110.0), // 1 L1
+            b(72.0, 60.0, 540.0, 80.0),    // 0 title
+            b(72.0, 100.0, 290.0, 110.0),  // 1 L1
             b(320.0, 100.0, 540.0, 110.0), // 2 R1
-            b(72.0, 114.0, 290.0, 124.0), // 3 L2
+            b(72.0, 114.0, 290.0, 124.0),  // 3 L2
             b(320.0, 114.0, 540.0, 124.0), // 4 R2
         ];
         assert_eq!(reading_order(&boxes, 10.0), vec![0, 1, 3, 2, 4]);

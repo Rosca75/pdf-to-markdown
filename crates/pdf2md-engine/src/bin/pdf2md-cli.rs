@@ -5,6 +5,10 @@ use std::process::ExitCode;
 
 use pdf2md_engine::{convert_path, CancelToken, Options};
 
+// Same allocator as the desktop app (see docs/performance.md).
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() -> ExitCode {
     let mut args = std::env::args_os().skip(1);
     let Some(input) = args.next().map(PathBuf::from) else {

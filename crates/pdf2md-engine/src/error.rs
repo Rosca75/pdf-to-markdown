@@ -39,10 +39,14 @@ impl ConvertError {
             Self::NotFound => "The file no longer exists at this location.".into(),
             Self::PermissionDenied => "The file cannot be read: access was denied.".into(),
             Self::NotAPdf => "This file is not a PDF document.".into(),
-            Self::Corrupt(detail) => format!("The PDF is damaged and could not be read ({detail})."),
+            Self::Corrupt(detail) => {
+                format!("The PDF is damaged and could not be read ({detail}).")
+            }
             Self::PasswordRequired => "This PDF is protected by a password.".into(),
             Self::WrongPassword => "The password is incorrect.".into(),
-            Self::NoTextLayer => "This PDF contains no extractable text (it is probably a scanned image).".into(),
+            Self::NoTextLayer => {
+                "This PDF contains no extractable text (it is probably a scanned image).".into()
+            }
             Self::Cancelled => "Conversion was cancelled.".into(),
             Self::Io(detail) => format!("The file could not be read ({detail})."),
         }

@@ -30,7 +30,9 @@ pub fn join(blocks: Vec<RawBlock>, stats: &DocStats) -> Vec<RawBlock> {
 }
 
 fn continues(prev: &[Line], next: &[Line], stats: &DocStats) -> bool {
-    let (Some(p), Some(n)) = (prev.last(), next.first()) else { return false };
+    let (Some(p), Some(n)) = (prev.last(), next.first()) else {
+        return false;
+    };
     if is_heading_candidate(prev, stats) || is_heading_candidate(next, stats) {
         return false;
     }
@@ -54,15 +56,27 @@ mod tests {
     use crate::lines::{build, tests::sp};
 
     fn block(spans: Vec<crate::model::Span>, soft: bool, page: usize) -> RawBlock {
-        RawBlock { kind: RawKind::Text(build(spans)), soft_start: soft, page }
+        RawBlock {
+            kind: RawKind::Text(build(spans)),
+            soft_start: soft,
+            page,
+        }
     }
 
     #[test]
     fn unfinished_sentence_continues_on_next_page() {
         let stats = DocStats::default();
         let blocks = vec![
-            block(vec![sp("The paragraph continues onto the", 72.0, 700.0, 10.0)], true, 0),
-            block(vec![sp("next page without a break.", 72.0, 72.0, 10.0)], true, 1),
+            block(
+                vec![sp("The paragraph continues onto the", 72.0, 700.0, 10.0)],
+                true,
+                0,
+            ),
+            block(
+                vec![sp("next page without a break.", 72.0, 72.0, 10.0)],
+                true,
+                1,
+            ),
         ];
         let joined = join(blocks, &stats);
         assert_eq!(joined.len(), 1);
@@ -73,8 +87,16 @@ mod tests {
     fn finished_sentence_does_not_continue() {
         let stats = DocStats::default();
         let blocks = vec![
-            block(vec![sp("This paragraph ends here.", 72.0, 700.0, 10.0)], true, 0),
-            block(vec![sp("New paragraph on the next page.", 72.0, 72.0, 10.0)], true, 1),
+            block(
+                vec![sp("This paragraph ends here.", 72.0, 700.0, 10.0)],
+                true,
+                0,
+            ),
+            block(
+                vec![sp("New paragraph on the next page.", 72.0, 72.0, 10.0)],
+                true,
+                1,
+            ),
         ];
         assert_eq!(join(blocks, &stats).len(), 2);
     }
@@ -83,7 +105,11 @@ mod tests {
     fn hard_break_never_joins() {
         let stats = DocStats::default();
         let blocks = vec![
-            block(vec![sp("No terminal punctuation", 72.0, 100.0, 10.0)], true, 0),
+            block(
+                vec![sp("No terminal punctuation", 72.0, 100.0, 10.0)],
+                true,
+                0,
+            ),
             block(vec![sp("separate paragraph", 72.0, 140.0, 10.0)], false, 0),
         ];
         assert_eq!(join(blocks, &stats).len(), 2);

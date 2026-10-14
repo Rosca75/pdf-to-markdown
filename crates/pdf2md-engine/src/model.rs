@@ -18,7 +18,12 @@ pub struct BBox {
 
 impl BBox {
     pub fn new(x0: f32, y0: f32, x1: f32, y1: f32) -> Self {
-        Self { x0: x0.min(x1), y0: y0.min(y1), x1: x0.max(x1), y1: y0.max(y1) }
+        Self {
+            x0: x0.min(x1),
+            y0: y0.min(y1),
+            x1: x0.max(x1),
+            y1: y0.max(y1),
+        }
     }
     pub fn width(&self) -> f32 {
         self.x1 - self.x0
@@ -27,7 +32,12 @@ impl BBox {
         self.y1 - self.y0
     }
     pub fn union(&self, o: &BBox) -> BBox {
-        BBox { x0: self.x0.min(o.x0), y0: self.y0.min(o.y0), x1: self.x1.max(o.x1), y1: self.y1.max(o.y1) }
+        BBox {
+            x0: self.x0.min(o.x0),
+            y0: self.y0.min(o.y0),
+            x1: self.x1.max(o.x1),
+            y1: self.y1.max(o.y1),
+        }
     }
     /// Length of the vertical overlap with `o` (0 when disjoint).
     pub fn v_overlap(&self, o: &BBox) -> f32 {
@@ -81,7 +91,6 @@ pub struct PageContent {
     pub width: f32,
     pub height: f32,
     pub spans: Vec<Span>,
-    pub rules: Vec<Rule>,
 }
 
 /// Styled inline text inside a block.
@@ -94,7 +103,11 @@ pub struct Inline {
 
 impl Inline {
     pub fn plain(text: impl Into<String>) -> Self {
-        Self { text: text.into(), style: Style::default(), link: None }
+        Self {
+            text: text.into(),
+            style: Style::default(),
+            link: None,
+        }
     }
 }
 
@@ -113,10 +126,23 @@ pub enum Marker {
 /// A semantic block, the unit Markdown is rendered from.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Block {
-    Heading { level: u8, inlines: Vec<Inline> },
-    Paragraph { inlines: Vec<Inline> },
-    ListItem { depth: u8, marker: Marker, inlines: Vec<Inline> },
-    Code { lines: Vec<String> },
+    Heading {
+        level: u8,
+        inlines: Vec<Inline>,
+    },
+    Paragraph {
+        inlines: Vec<Inline>,
+    },
+    ListItem {
+        depth: u8,
+        marker: Marker,
+        inlines: Vec<Inline>,
+    },
+    Code {
+        lines: Vec<String>,
+    },
     /// Rows of cells; the first row is rendered as the header.
-    Table { rows: Vec<Vec<Vec<Inline>>> },
+    Table {
+        rows: Vec<Vec<Vec<Inline>>>,
+    },
 }

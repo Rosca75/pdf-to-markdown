@@ -63,7 +63,39 @@ Existing files are never overwritten: if `report.md` already exists, the new fil
 - **No OCR.** Scanned documents with no text layer cannot be converted; the app tells you so.
 - **Images, shapes, and diagrams are dropped.** Only text content reaches the Markdown.
 - **Tables are best-effort.** Detection works well for ruled and cleanly aligned tables and can miss or mis-split complex layouts (merged cells, nested tables).
-- Heading and list detection is heuristic, based on font size, weight, and layout, so unusual documents may need touch-ups.
+- Heading and list detection is heuristic, based on font size, weight, numbering and layout, so unusual documents may need touch-ups.
+- A few PDFs position words with raw offsets instead of spaces; the underlying parser (`pdf_oxide`) can then join them (`1Scope`). See [docs/pdf_oxide-evaluation.md](docs/pdf_oxide-evaluation.md).
+
+## How it works
+
+The engine (`crates/pdf2md-engine`) uses [`pdf_oxide`](https://crates.io/crates/pdf_oxide) only to parse PDFs and extract positioned, styled text runs. Everything after that is its own layout pipeline:
+
+1. lines are assembled from text runs;
+2. running headers, footers and page numbers are detected across the whole document;
+3. ruled and aligned tables are detected;
+4. reading order comes from a recursive XY-cut, which handles columns;
+5. paragraphs are segmented, then re-joined across page and column breaks with dehyphenation;
+6. headings (by size, weight and section numbering), lists and code are classified;
+7. the result is rendered as GFM.
+
+Why the built-in `pdf_oxide` Markdown converter was not used is explained in [docs/pdf_oxide-evaluation.md](docs/pdf_oxide-evaluation.md).
+
+Robustness is test-driven against a corpus of deliberately difficult PDFs: broken xref tables, truncated files, corrupt streams, encryption, unusual encodings, ligatures, words split across pages, margin jumps, rotated text, multi-column layouts and more. See `tests/corpus/manifest.toml`.
+
+## Performance
+
+These figures were measured on an older business laptop (Intel i7-6600U, 2 cores / 4 threads).
+
+| Document | Pages | Throughput | Peak memory |
+|---|---|---|---|
+| ISO 32000 PDF specification (22.5 MB) | 756 | 197–259 pages/s (2.9–3.8 s) | 151 MB |
+| Synthetic 500-page report | 500 | 739 pages/s | 54 MB |
+
+Pages are extracted in parallel, and the worker count adapts to the number of cores and to file size, so memory stays bounded. The app uses the mimalloc allocator. Methodology, targets and the techniques evaluated are in [docs/performance.md](docs/performance.md). To reproduce:
+
+```sh
+cargo run --release -p pdf2md-engine --example bench -- [--threads N] [file.pdf ...]
+```
 
 ## Building from source
 
@@ -99,18 +131,18 @@ The Rust crates compile against the built frontend, so run `npm run build` (whic
 npm ci
 npm run build                      # the Tauri crate needs dist/ to exist
 npm test                           # frontend unit tests (Vitest)
-cargo test --workspace --release   # engine, fixtures, and shell tests
+cargo test --workspace --profile ci  # engine, fixtures, and shell tests
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Release mode is used for Rust tests because the corpus integration tests convert a set of committed PDFs in `tests/corpus/` and are slow in debug builds. CI runs all of the above on Ubuntu, Windows, and macOS for every push to `main` and every pull request.
+Rust tests run in the optimised `ci` profile (release without LTO): the corpus integration tests convert the committed PDFs in `tests/corpus/`, and the performance guards in `crates/pdf2md-engine/tests/performance.rs` only run in optimised builds. CI runs all of the above on Ubuntu, Windows, and macOS for every push to `main` and every pull request.
 
 ## Project layout
 
 ```
 Cargo.toml                 Cargo workspace
-crates/pdf2md-engine/      conversion engine (library plus a `pdf2md` CLI for corpus runs and benches)
+crates/pdf2md-engine/      conversion engine (library plus a `pdf2md-cli` binary for corpus runs)
 crates/pdf-fixtures/       dev-only PDF writer and corpus generator
 tests/corpus/              generated, committed corpus PDFs and expectations
 src-tauri/                 Tauri v2 app shell (commands, events, state)

@@ -60,9 +60,12 @@ pub fn page_count(doc: &PdfDocument) -> Result<usize, ConvertError> {
 
 /// Facts about one extracted page beyond its content.
 pub struct PageExtract {
+    /// Page geometry and text spans. Ruling lines are fetched separately
+    /// with [`rules`], only for pages that need them.
     pub content: PageContent,
     /// Undecodable glyphs met on this page (U+FFFD from the font decoder).
     pub undecodable: usize,
+    pub frame: Frame,
 }
 
 /// Extract one page. Errors (including panics inside pdf_oxide) are returned
@@ -87,7 +90,10 @@ fn page_inner(doc: &PdfDocument, index: usize) -> Result<PageExtract, String> {
     let mut spans = Vec::with_capacity(raw.len());
     let mut span_words: Vec<Option<Vec<(f32, f32)>>> = Vec::with_capacity(raw.len());
     for s in raw {
-        if matches!(s.artifact_type, Some(ArtifactType::Pagination(_)) | Some(ArtifactType::Page)) {
+        if matches!(
+            s.artifact_type,
+            Some(ArtifactType::Pagination(_)) | Some(ArtifactType::Page)
+        ) {
             // Tagged furniture (or pdf_oxide's own page-number detection):
             // excluded here, the geometric furniture pass handles the rest.
             continue;
@@ -109,20 +115,36 @@ fn page_inner(doc: &PdfDocument, index: usize) -> Result<PageExtract, String> {
         // horizontal position: fold them into the box instead of the text.
         let lead = text.len() - text.trim_start().len();
         if lead > 0 {
-            let start = words.as_ref().and_then(|w| w.first()).map(|w| w.0 - frame.x0);
+            let start = words
+                .as_ref()
+                .and_then(|w| w.first())
+                .map(|w| w.0 - frame.x0);
             let per_char = bbox.width() / text.chars().count().max(1) as f32;
             bbox.x0 = start.unwrap_or(bbox.x0 + per_char * text[..lead].chars().count() as f32);
             text.drain(..lead);
         }
-        if bbox.width() <= 0.0 || bbox.y1 < 0.0 || bbox.y0 > height || bbox.x1 < 0.0 || bbox.x0 > width {
+        if bbox.width() <= 0.0
+            || bbox.y1 < 0.0
+            || bbox.y0 > height
+            || bbox.x1 < 0.0
+            || bbox.x0 > width
+        {
             // Off-page text (clipped away when displayed).
             continue;
         }
-        span_words.push(words.map(|w| w.into_iter().map(|(a, b)| (a - frame.x0, b - frame.x0)).collect()));
+        span_words.push(words.map(|w| {
+            w.into_iter()
+                .map(|(a, b)| (a - frame.x0, b - frame.x0))
+                .collect()
+        }));
         spans.push(Span {
             text,
             bbox,
-            font_size: if s.font_size > 0.0 { s.font_size } else { bbox.height().max(1.0) },
+            font_size: if s.font_size > 0.0 {
+                s.font_size
+            } else {
+                bbox.height().max(1.0)
+            },
             style: Style {
                 bold: (s.font_weight as u16) >= 600,
                 italic: s.is_italic,
@@ -132,11 +154,23 @@ fn page_inner(doc: &PdfDocument, index: usize) -> Result<PageExtract, String> {
         });
     }
 
-    let rules = if spans.is_empty() { Vec::new() } else { rules(doc, index, &frame) };
-    let links = if spans.is_empty() { Vec::new() } else { links(doc, index, &frame) };
+    let links = if spans.is_empty() {
+        Vec::new()
+    } else {
+        links(doc, index, &frame)
+    };
     crate::links::apply(&mut spans, &span_words, &links);
 
-    Ok(PageExtract { content: PageContent { index, width, height, spans, rules }, undecodable })
+    Ok(PageExtract {
+        content: PageContent {
+            index,
+            width,
+            height,
+            spans,
+        },
+        undecodable,
+        frame,
+    })
 }
 
 /// X extents (PDF space) of each whitespace-separated word of a span, from
@@ -174,7 +208,8 @@ fn word_ranges(s: &pdf_oxide::layout::TextSpan) -> Option<Vec<(f32, f32)>> {
 }
 
 /// Maps PDF user space (y up, arbitrary origin) to the page frame.
-struct Frame {
+#[derive(Debug, Clone, Copy)]
+pub struct Frame {
     x0: f32,
     top: f32,
 }
@@ -182,12 +217,21 @@ struct Frame {
 impl Frame {
     /// `x, y` is the lower-left corner in PDF space.
     fn rect(&self, x: f32, y: f32, w: f32, h: f32) -> BBox {
-        BBox::new(x - self.x0, self.top - (y + h), x + w - self.x0, self.top - y)
+        BBox::new(
+            x - self.x0,
+            self.top - (y + h),
+            x + w - self.x0,
+            self.top - y,
+        )
     }
 }
 
-fn rules(doc: &PdfDocument, index: usize, frame: &Frame) -> Vec<Rule> {
-    let Ok(paths) = doc.extract_paths(index) else { return Vec::new() };
+/// Ruling lines of a page (table borders). Re-parses the content stream for
+/// vector paths, so callers ask only for pages that may hold a table.
+pub fn rules(doc: &PdfDocument, index: usize, frame: &Frame) -> Vec<Rule> {
+    let Ok(Ok(paths)) = guarded(|| doc.extract_paths(index)) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     for p in paths {
         let r = &p.bbox;
@@ -195,22 +239,34 @@ fn rules(doc: &PdfDocument, index: usize, frame: &Frame) -> Vec<Rule> {
         if w <= RULE_THICKNESS || h <= RULE_THICKNESS {
             // Ruling line or hairline rectangle.
             if w.max(h) >= 4.0 {
-                out.push(Rule { bbox: frame.rect(r.x, r.y, w.max(0.5), h.max(0.5)) });
+                out.push(Rule {
+                    bbox: frame.rect(r.x, r.y, w.max(0.5), h.max(0.5)),
+                });
             }
         } else if p.stroke_color.is_some() && p.is_rectangle() {
             // Stroked cell border: contributes its four edges.
             let b = frame.rect(r.x, r.y, w, h);
-            out.push(Rule { bbox: BBox::new(b.x0, b.y0, b.x1, b.y0 + 0.5) });
-            out.push(Rule { bbox: BBox::new(b.x0, b.y1 - 0.5, b.x1, b.y1) });
-            out.push(Rule { bbox: BBox::new(b.x0, b.y0, b.x0 + 0.5, b.y1) });
-            out.push(Rule { bbox: BBox::new(b.x1 - 0.5, b.y0, b.x1, b.y1) });
+            out.push(Rule {
+                bbox: BBox::new(b.x0, b.y0, b.x1, b.y0 + 0.5),
+            });
+            out.push(Rule {
+                bbox: BBox::new(b.x0, b.y1 - 0.5, b.x1, b.y1),
+            });
+            out.push(Rule {
+                bbox: BBox::new(b.x0, b.y0, b.x0 + 0.5, b.y1),
+            });
+            out.push(Rule {
+                bbox: BBox::new(b.x1 - 0.5, b.y0, b.x1, b.y1),
+            });
         }
     }
     out
 }
 
 fn links(doc: &PdfDocument, index: usize, frame: &Frame) -> Vec<Link> {
-    let Ok(annots) = doc.get_annotations(index) else { return Vec::new() };
+    let Ok(annots) = doc.get_annotations(index) else {
+        return Vec::new();
+    };
     annots
         .into_iter()
         .filter_map(|a| {
@@ -225,7 +281,10 @@ fn links(doc: &PdfDocument, index: usize, frame: &Frame) -> Vec<Link> {
             let [x0, y0, x1, y1] = a.rect?;
             let (x0, x1) = (x0.min(x1) as f32, x0.max(x1) as f32);
             let (y0, y1) = (y0.min(y1) as f32, y0.max(y1) as f32);
-            Some(Link { bbox: frame.rect(x0, y0, x1 - x0, y1 - y0), uri: Arc::from(uri) })
+            Some(Link {
+                bbox: frame.rect(x0, y0, x1 - x0, y1 - y0),
+                uri: Arc::from(uri),
+            })
         })
         .collect()
 }

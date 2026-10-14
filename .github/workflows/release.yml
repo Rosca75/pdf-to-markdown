@@ -89,7 +89,7 @@ jobs:
         run: npm test
 
       - name: Rust tests
-        run: cargo test --workspace --release
+        run: cargo test --workspace --profile ci
 
       - name: Build (Windows portable exe)
         if: runner.os == 'Windows'
